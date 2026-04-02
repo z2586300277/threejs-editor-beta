@@ -1,4 +1,4 @@
-# 🍃Three.js - 3D组件化 - 低代码 - 编辑器🍁 -
+# 🍃Three.js - 3D组件化 - 低代码 - 编辑器🍁 - Beta
 
 - 推荐node 20+ pnpm安装 [cnpm npm yarn] 等安装报错请添加，如npm i --force 强制安装。
 
