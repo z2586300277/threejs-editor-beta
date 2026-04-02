@@ -52,5 +52,5 @@ jobs:
           git init
           git add -A
           git commit -m "deploy: threejs editor"
-          git remote add origin https://${{ secrets.SITE_TOKEN }}@github.com/z2586300277/threejs-editor-beta.git
+          git remote add origin https://x-access-token:${{ secrets.SITE_TOKEN }}@github.com/z2586300277/threejs-editor-beta.git
           git push origin HEAD:site -f
