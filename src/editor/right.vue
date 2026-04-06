@@ -99,8 +99,27 @@
     <div class="scene-stats">
        <span>物体 {{ sceneStats.objects.toLocaleString() }}</span><span>顶点 {{ sceneStats.vertices.toLocaleString() }}</span><span>三角面 {{ sceneStats.triangles.toLocaleString() }}</span>
     </div>
+
+    <!-- 动画列表控制面板 -->
+    <div class="animation-list">
+        <div class="control-header">
+            <el-select v-model="selectedAnimation" placeholder="选择动画" class="set-select">
+                <el-option v-for="(anim, index) in animationList" :key="index" :label="anim.name" :value="anim.url" />
+            </el-select>
+            <div class="flex">
+                <el-button @click="applyAnimation" icon="VideoPlay" style="height:30px;width:60px" title="应用动画">
+                    应用
+                </el-button>
+                <el-button @click="clearAnimation" icon="Delete" style="height:30px;width:60px" title="清除动画">
+                    清除
+                </el-button>
+            </div>
+        </div>
+    </div>
+    
+
     <!-- 外部链接面板 -->
-    <div class="external-links">
+    <!-- <div class="external-links">
         <div class="control-group">
             <div class="group-header">
                 <span class="group-title">快捷链接 <img src="https://visitor-badge.laobi.icu/badge?page_id=three_editor" > </span> 
@@ -116,12 +135,12 @@
                 </el-button>
             </div>
         </div>
-    </div>
+    </div> -->
 </template>
 
 <script setup>
 import { computed, reactive, ref, shallowReactive, watch } from 'vue'
-import { Grid, ScaleToOriginal, Histogram, View, Hide, Delete, ArrowRightBold, BrushFilled } from '@element-plus/icons-vue'
+import { Grid, ScaleToOriginal, Histogram, View, Hide, Delete, ArrowRightBold, BrushFilled, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 const sceneObjList = reactive([])
@@ -163,6 +182,37 @@ const datalist = reactive([
 ])
 
 const getUrl = computed(() => datalist.find(i => i.name === selectedSet.value).url)
+
+const listJ = window.animateJsons.map(v => __isProduction__ ? '/threejs-editor-beta/' + v : '/' + v)
+// 动画列表
+const selectedAnimation = ref('')
+const animationList = computed(() => {
+    return listJ.map((url, index) => {
+        const name = url.split('/').pop().replace('.json', '')
+        return { name, url }
+    })
+})
+
+// 应用动画
+const applyAnimation = () => {
+    if (!selectedAnimation.value) return ElMessage.warning('请先选择动画')
+    fetch(selectedAnimation.value).then(res => res.json()).then(res => {
+        if (res) {
+            localStorage.removeItem('theatre-0.4.persistent')
+            localStorage.setItem('THREE_EDITOR_ANIMATIONS', JSON.stringify(res))
+            ElMessage.success('动画已应用')
+            setTimeout(() =>window.location.reload(), 1000);
+        }
+    })
+}
+
+// 清除动画
+const clearAnimation = () => {
+    localStorage.removeItem('theatre-0.4.persistent')
+    localStorage.removeItem('THREE_EDITOR_ANIMATIONS')
+    ElMessage.success('动画已清除')
+    setTimeout(() => window.location.reload(), 1000)
+}
 
 const setSky = (v) => {
     const set = datalist.find(i => i.name === v)
@@ -306,6 +356,16 @@ function clear() {
     gap: 5px;
     padding: 0px 10px 0px 10px;
     box-sizing: border-box;
+}
+
+.animation-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0px 10px 10px 10px;
+    box-sizing: border-box;
+    margin-top: 10px;
 }
 
 .control-header {

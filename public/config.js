@@ -1,6 +1,8 @@
 window.editorJsons = [
     'editorJson/优雅永不过时.json',
+    'editorJson/动画时间线-追逐.json',
     'editorJson/地图.json',
+    'editorJson/动画时间线-旋律.json',
     'editorJson/优雅园区.json',
     'editorJson/二维码.json',
     'editorJson/行政区.json',
@@ -47,12 +49,19 @@ window.editorJsons = [
     'editorJson/关爱地球.json',
 ]
 
+window.animateJsons = [
+    'animateJson/追逐.json',
+    'animateJson/旋律.json',
+]
+
+
 window.models = [
     'https://z2586300277.github.io/three-editor/dist/files/resource/datacenter.glb',
     'https://z2586300277.github.io/3d-file-server/files/model/elegant.glb',
     'https://z2586300277.github.io/3d-file-server/models/modern_city.glb',
     'https://z2586300277.github.io/3d-file-server/models/glb/computer.glb',
     'https://z2586300277.github.io/3d-file-server/models/glb/daodan.glb',
+    'https://z2586300277.github.io/3d-file-server/models/dance.glb',
     'https://z2586300277.github.io/3d-file-server/models/glb/feiji.glb',
     'https://z2586300277.github.io/3d-file-server/models/glb/gongren.glb',
     'https://z2586300277.github.io/3d-file-server/models/glb/leida.glb',

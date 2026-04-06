@@ -9,6 +9,10 @@ import { ThreeEditor } from './lib'
 
 ThreeEditor.dracoPath = __isProduction__ ? '/threejs-editor-beta/draco/' : '/draco/'
 
+// 初始渲染动画数据
+const THREE_EDITOR_ANIMATIONS = localStorage.getItem('THREE_EDITOR_ANIMATIONS')
+if (THREE_EDITOR_ANIMATIONS) window.THREE_EDITOR_ANIMATIONS = JSON.parse(THREE_EDITOR_ANIMATIONS)
+
 let threeEditor = null
 const editor = ref(null)
 window.GUI_PARAMS = {
@@ -55,7 +59,7 @@ async function init() {
             sceneParams: changeDBModelUrl(sceneParams)
         })
     } catch (error) {
-        localStorage.removeItem(dataCores.sceneName + '-newEditor')
+        // localStorage.removeItem(dataCores.sceneName + '-newEditor')
     }
 
 

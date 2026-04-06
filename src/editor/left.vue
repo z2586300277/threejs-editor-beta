@@ -29,6 +29,7 @@
 import { ref, computed } from 'vue';
 import { ThreeEditor, getObjectViews, createGsapAnimation } from './lib'
 import * as THREE from 'three';
+import { ElMessage } from 'element-plus';
 
 ThreeEditor.__GLSLLIB__.push(
        {
@@ -159,7 +160,22 @@ function setActive(item) {
   searchText.value = '';
 }
 
-const loadScene = (v) => fetch(v).then(res => res.json()).then(res => threeEditor?.resetEditorStorage(res))
+let current_scene_url = localStorage.getItem('current_scene_url')
+const loadScene = async (v) => {
+  if(v.indexOf('动画时间线') > -1) {
+    let str = v 
+    const newUrl = str.replace('/editorJson/', '/animateJson/').replace(/动画时间线-/g, '')
+    if(current_scene_url!==newUrl) {
+        const res = await fetch(newUrl).then(res => res.json())
+        localStorage.setItem('current_scene_url', newUrl)
+        localStorage.removeItem('theatre-0.4.persistent')
+        localStorage.setItem('THREE_EDITOR_ANIMATIONS', JSON.stringify(res))
+        ElMessage.success('此场景包含动画时间线, 已加载了动画数据, 即将刷新页面, 再次点击当前场景即可正常查看动画效果')
+        return setTimeout(() => window.location.reload(), 1000)
+    }
+  }
+  fetch(v).then(res => res.json()).then(res => threeEditor?.resetEditorStorage(res))
+}
 const loadModel = (url, point) => {
   const { modelCores } = window.threeEditor
   const { camera, controls, transformControls } = threeEditor
