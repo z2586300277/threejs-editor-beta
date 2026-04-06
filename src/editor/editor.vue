@@ -59,7 +59,7 @@ async function init() {
             sceneParams: changeDBModelUrl(sceneParams)
         })
     } catch (error) {
-        // localStorage.removeItem(dataCores.sceneName + '-newEditor')
+        localStorage.removeItem(dataCores.sceneName + '-newEditor')
     }
 
 
