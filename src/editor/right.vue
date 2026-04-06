@@ -119,7 +119,7 @@
     
 
     <!-- 外部链接面板 -->
-    <!-- <div class="external-links">
+    <div class="external-links">
         <div class="control-group">
             <div class="group-header">
                 <span class="group-title">快捷链接 <img src="https://visitor-badge.laobi.icu/badge?page_id=three_editor" > </span> 
@@ -135,7 +135,7 @@
                 </el-button>
             </div>
         </div>
-    </div> -->
+    </div>
 </template>
 
 <script setup>
@@ -254,11 +254,11 @@ watch(pixelRatio, (val) => {
 // 外部链接数据
 const externalLinks = reactive([
     { name: '素材库', url: 'https://z2586300277.github.io/3d-file-server/link.html', icon: 'Collection' },
-    { name: 'Npm内核', url: 'https://www.npmjs.com/package/three-edit-cores', icon: 'Box' },
-    { name: 'B站', url: 'https://space.bilibili.com/245165721' , icon: 'ChatDotRound' },
-    { name: '交流群', url: 'https://z2586300277.github.io/personalCode.html', icon: 'Document' },
+    // { name: 'Npm内核', url: 'https://www.npmjs.com/package/three-edit-cores', icon: 'Box' },
+    // { name: 'B站', url: 'https://space.bilibili.com/245165721' , icon: 'ChatDotRound' },
+    // { name: '交流群', url: 'https://z2586300277.github.io/personalCode.html', icon: 'Document' },
     { name: '定制开发', url: 'https://www.goofish.com/personal?userId=2885508577', icon: 'Promotion' },
-    { name: '赞赏', url: 'https://z2586300277.github.io/sponsor.html', icon: 'StarFilled' },
+    // { name: '赞赏', url: 'https://z2586300277.github.io/sponsor.html', icon: 'StarFilled' },
 ])
 
 // 打开外部链接
