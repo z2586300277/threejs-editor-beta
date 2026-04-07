@@ -115,16 +115,24 @@
                 </el-button>
             </div>
         </div>
+        <div v-for="(s, i) in sceneSheets" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:12px;">
+            <span style="color:#a8d4fd;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="s.name">{{ s.name }}</span>
+            <div style="display:flex;gap:4px;">
+                <el-button size="small" :icon="VideoPlay" circle title="播放" @click="sheetPlay(i)" />
+                <el-button size="small" icon="VideoPause" circle title="暂停" @click="sheetPause(i)" />
+                <el-button size="small" icon="RefreshLeft" circle title="重置" @click="sheetReset(i)" />
+            </div>
+        </div>
     </div>
     
 
     <!-- 外部链接面板 -->
     <div class="external-links">
         <div class="control-group">
-            <div class="group-header">
+            <!-- <div class="group-header">
                 <span class="group-title">快捷链接 <img src="https://visitor-badge.laobi.icu/badge?page_id=three_editor" > </span> 
                 <div class="divider"></div>
-            </div>
+            </div> -->
             <div class="links-container">
                 <el-button v-for="link in externalLinks" :key="link.name" type="primary" plain size="small"
                     class="link-button" @click="openLink(link.url)">
@@ -282,6 +290,7 @@ defineExpose({
     },
     startEditor(te) {
         const { scene } = te
+        loadSceneAnimations(te)
         const push_obj = args => {
             args.map(obj => {
              ['PerspectiveCamera','AxesHelper','GridHelper','Box3Helper'].indexOf(obj.type) === -1 && sceneObjList.unshift(obj)
@@ -320,6 +329,35 @@ function selectObj(item) {
      threeEditor.transformControls.attach(i)
    }
     catch (error) {}
+}
+
+const sceneSheets = ref([])
+let _sheetsRaw = []
+
+function loadSceneAnimations(t) {
+    const { scene } = t
+    scene.SET_STORAGE_CALL = () => {
+        const { studio } = t.other.animateEditor
+        const sheets = studio.studioProject.sheets
+        _sheetsRaw = []
+        Object.keys(sheets).forEach(k => {
+            const s = sheets[k]
+            _sheetsRaw.push({ name: s.name || k, sequence: s.sequence })
+        })
+        sceneSheets.value = _sheetsRaw.map(s => ({ name: s.name }))
+    }
+    scene.SET_STORAGE_CALL()
+}
+
+function sheetPlay(i) {
+    _sheetsRaw[i]?.sequence.play({ iterationCount: Infinity })
+}
+function sheetPause(i) {
+    _sheetsRaw[i]?.sequence.pause()
+}
+function sheetReset(i) {
+    const seq = _sheetsRaw[i]?.sequence
+    if (seq) { seq.pause(); seq.position = 0 }
 }
 
 function delI(item) {

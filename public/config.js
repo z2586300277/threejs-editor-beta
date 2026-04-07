@@ -4,6 +4,7 @@ window.editorJsons = [
     'editorJson/地图.json',
     'editorJson/动画时间线-旋律.json',
     'editorJson/优雅园区.json',
+    'editorJson/动画时间线-舞动.json',
     'editorJson/二维码.json',
     'editorJson/行政区.json',
     'editorJson/草原追逐.json',

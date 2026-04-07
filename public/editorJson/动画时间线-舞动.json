@@ -1,0 +1,508 @@
+{
+    "scene": {
+        "backgroundBlurriness": 0,
+        "backgroundIntensity": 1,
+        "backgroundUrls": null,
+        "environmentEnabled": false
+    },
+    "perspectiveCamera": {
+        "fov": 50,
+        "near": 0.1,
+        "far": 100000,
+        "zoom": 1,
+        "layers": {
+            "mask": 1
+        },
+        "filmOffset": 0,
+        "filmGauge": 35,
+        "position": {
+            "x": -1.3881000023551895,
+            "y": 3.4812779211479596,
+            "z": 4.659780607157668
+        }
+    },
+    "webglRenderer": {
+        "outputColorSpace": "srgb",
+        "toneMapping": 0,
+        "toneMappingExposure": 1,
+        "shadowMap": {
+            "enabled": false,
+            "type": 1
+        },
+        "color": 0,
+        "opacity": 0,
+        "sortObjects": true,
+        "localClippingEnabled": false,
+        "autoClear": true,
+        "autoClearColor": true,
+        "renderListCompare": [
+            {
+                "name": "stats",
+                "enabled": true
+            },
+            {
+                "name": "controls",
+                "enabled": true
+            },
+            {
+                "name": "scene",
+                "enabled": true
+            },
+            {
+                "name": "css3DRender",
+                "enabled": true
+            },
+            {
+                "name": "css2DRender",
+                "enabled": true
+            }
+        ]
+    },
+    "orbitControls": {
+        "autoRotate": false,
+        "autoRotateSpeed": 2,
+        "enableDamping": true,
+        "dampingFactor": 0.05,
+        "minDistance": 0.01,
+        "maxDistance": 1000000,
+        "maxAzimuthAngle": null,
+        "minAzimuthAngle": null,
+        "maxPolarAngle": 3.141592653589793,
+        "minPolarAngle": 0,
+        "maxTargetRadius": null,
+        "minTargetRadius": 0,
+        "enablePan": true,
+        "panSpeed": 1,
+        "enableRotate": true,
+        "rotateSpeed": 1,
+        "enableZoom": true,
+        "zoomSpeed": 1,
+        "zoomToCursor": false,
+        "target": {
+            "x": -0.37608491347392065,
+            "y": -1.2600423336403037,
+            "z": -2.0077005389633436
+        }
+    },
+    "transformControls": {
+        "mode": "translate",
+        "space": "world",
+        "size": 1,
+        "showX": true,
+        "showY": true,
+        "showZ": true,
+        "translationSnap": null,
+        "rotationSnap": null,
+        "scaleSnap": null
+    },
+    "effectComposer": {
+        "renderWay": "effectComposer",
+        "fxaaPass": {
+            "enabled": true,
+            "order": 60,
+            "multPixel": 1
+        },
+        "outlinePass": {
+            "enabled": true,
+            "order": 40,
+            "edgeStrength": 3,
+            "edgeGlow": 0,
+            "edgeThickness": 1,
+            "pulsePeriod": 0,
+            "usePatternTexture": false,
+            "visibleEdgeColor": 16449071,
+            "hiddenEdgeColor": 16449071,
+            "overlayMaterial": {
+                "blending": 5,
+                "blendEquation": 100,
+                "blendSrc": 201,
+                "blendDst": 205
+            }
+        },
+        "outputPass": {
+            "enabled": true,
+            "order": 50
+        },
+        "saoPass": {
+            "enabled": false,
+            "order": 10,
+            "saoBias": 0.5,
+            "saoIntensity": 0.01,
+            "saoScale": 100,
+            "saoKernelRadius": 100,
+            "saoMinResolution": 0,
+            "saoBlur": true,
+            "saoBlurRadius": 8,
+            "saoBlurStdDev": 4,
+            "saoBlurDepthCutoff": 0.01
+        },
+        "screenMaskPass": {
+            "enabled": false,
+            "order": 70,
+            "intensity": 1,
+            "maskColor": 16777215,
+            "R": 0.2,
+            "sr": 1.2
+        },
+        "ssrPass": {
+            "enabled": false,
+            "order": 30,
+            "maxDistance": 0.01,
+            "distanceAttenuation": true,
+            "opacity": 0.5,
+            "thickness": 0.018,
+            "fresnel": true,
+            "infiniteThick": false,
+            "bouncing": false
+        },
+        "unrealBloomPass": {
+            "enabled": false,
+            "order": 20,
+            "strength": 1.5,
+            "radius": 0.4,
+            "threshold": 0.85
+        }
+    },
+    "handler": {
+        "mode": "transform",
+        "openKeyEnable": true,
+        "rightClickMenusEnable": true,
+        "selectChildEnabled": false,
+        "selectChildLevel": 1,
+        "stats": {
+            "showStats": false,
+            "statsMode": 0
+        },
+        "helpers": {
+            "axes": {
+                "showAxes": false,
+                "axesLength": 1000
+            },
+            "grid": {
+                "showGrid": false,
+                "size": 1000,
+                "divisions": 15,
+                "colorCenterLine": 4473924,
+                "colorGrid": 8947848
+            },
+            "box3": {
+                "useBox3": true,
+                "color": 16776960
+            }
+        }
+    },
+    "lightCores": [
+        {
+            "name": "",
+            "type": "AmbientLight",
+            "visible": true,
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "color": 16777215,
+            "intensity": 1,
+            "castShadow": false,
+            "layers": {
+                "mask": 1
+            }
+        },
+        {
+            "name": "环境光",
+            "type": "AmbientLight",
+            "visible": true,
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "color": 16777215,
+            "intensity": 1,
+            "castShadow": false,
+            "layers": {
+                "mask": 1
+            }
+        },
+        {
+            "name": "平行光",
+            "type": "DirectionalLight",
+            "visible": true,
+            "position": {
+                "x": -1.5135541149982272,
+                "y": 3.1517191453604885,
+                "z": 3.318984908730944
+            },
+            "color": 16777215,
+            "intensity": 3.8,
+            "castShadow": false,
+            "layers": {
+                "mask": 1
+            },
+            "shadow": {
+                "bias": 0,
+                "radius": 1,
+                "mapSize": {
+                    "x": 512,
+                    "y": 512
+                },
+                "normalBias": 0,
+                "camera": {
+                    "near": 0.5,
+                    "far": 500,
+                    "left": -5,
+                    "right": 5,
+                    "top": 5,
+                    "bottom": -5
+                }
+            },
+            "target": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            }
+        }
+    ],
+    "innerCores": [],
+    "modelCores": [
+        {
+            "group": {
+                "name": "人物",
+                "visible": true,
+                "renderOrder": 0,
+                "castShadow": false,
+                "frustumCulled": true,
+                "receiveShadow": false,
+                "position": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "rotation": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "scale": {
+                    "x": 1,
+                    "y": 1,
+                    "z": 1
+                },
+                "layers": {
+                    "mask": 1
+                },
+                "modelConfig": {
+                    "useGlobalShadow": false,
+                    "useGlobalMaterial": false,
+                    "isSaveChildren": false,
+                    "isSaveMaterials": false,
+                    "castShadow": false,
+                    "receiveShadow": false,
+                    "envMap": false,
+                    "envMapIntensity": 1,
+                    "reflectivity": 0.98,
+                    "isGlobalMap": true
+                },
+                "animationPlayParams": {
+                    "initPlay": true,
+                    "speed": 1.2,
+                    "actionIndexs": [
+                        true,
+                        false
+                    ],
+                    "startTime": 0,
+                    "loop": true
+                },
+                "axesAnimationParams": {
+                    "axis": "y",
+                    "enable": false,
+                    "speed": 1,
+                    "loop": true
+                }
+            },
+            "modelInfo": {
+                "url": "https://z2586300277.github.io/3d-file-server/models/dance.glb",
+                "type": "GLB"
+            }
+        }
+    ],
+    "drawCores": [
+        {
+            "points": [
+                {
+                    "x": -2.744819734410152,
+                    "y": 8.881784197001252e-16,
+                    "z": -2.7415786243990707
+                },
+                {
+                    "x": 1.6625095750898709,
+                    "y": 0,
+                    "z": 0
+                },
+                {
+                    "x": 1.5510705414076824,
+                    "y": 0,
+                    "z": 0
+                },
+                {
+                    "x": -1.096307497976583,
+                    "y": 0,
+                    "z": 2.6601343803633597
+                },
+                {
+                    "x": -3.182616309510326,
+                    "y": 8.881784197001252e-16,
+                    "z": -0.41728701980858474
+                },
+                {
+                    "x": -0.2596858769170054,
+                    "y": 0.2591489631781929,
+                    "z": -0.09470299369134239
+                }
+            ],
+            "mode": "curveTube",
+            "materialType": "MeshBasicMaterial",
+            "waveEnabled": false,
+            "waveHeight": 0,
+            "waveAxial": "y",
+            "tubularSegments": 64,
+            "radius": 0.11,
+            "radialSegments": 3,
+            "closed": false,
+            "name": "",
+            "visible": true,
+            "renderOrder": 0,
+            "castShadow": false,
+            "frustumCulled": true,
+            "receiveShadow": false,
+            "material": {
+                "visible": true,
+                "type": "MeshBasicMaterial",
+                "side": 2,
+                "wireframe": false,
+                "color": 10613245,
+                "vertexColors": false,
+                "toneMapped": true,
+                "transparent": true,
+                "opacity": 0.8,
+                "alphaTest": 0.1,
+                "depthTest": true,
+                "depthWrite": true,
+                "alphaHash": false,
+                "alphaToCoverage": false,
+                "blending": 1,
+                "envMap": false,
+                "reflectivity": 1,
+                "map": {
+                    "textureUrl": "https://z2586300277.github.io/3d-file-server/images/channels/star2.png",
+                    "textureType": "image",
+                    "colorSpace": "",
+                    "wrapS": 1000,
+                    "wrapT": 1000,
+                    "rotation": 0,
+                    "center": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "repeat": {
+                        "x": 9.24,
+                        "y": 1
+                    },
+                    "offset": {
+                        "x": 1797.821999998652,
+                        "y": 0
+                    },
+                    "animation": {
+                        "enable": true,
+                        "rotation": 0,
+                        "offset": {
+                            "x": 0.02,
+                            "y": 0
+                        }
+                    }
+                }
+            },
+            "position": {
+                "x": 0.246086276732852,
+                "y": 0,
+                "z": 0
+            },
+            "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "scale": {
+                "x": 1,
+                "y": 0.034915378755130067,
+                "z": 1
+            },
+            "layers": {
+                "mask": 1
+            }
+        }
+    ],
+    "textCores": [],
+    "particleCores": [],
+    "geoCores": {
+        "url": "https://z2586300277.github.io/3d-file-server/files/json/china.json",
+        "isListMaterial": false,
+        "geoEvent": false,
+        "geoEventType": "click",
+        "geoEventParams": {
+            "name": "",
+            "_scale": 1,
+            "scale": 2,
+            "duration": 0.5
+        },
+        "list": []
+    },
+    "designCores": [
+        {
+            "designType": "ice",
+            "name": "",
+            "visible": true,
+            "renderOrder": 0,
+            "castShadow": false,
+            "frustumCulled": true,
+            "receiveShadow": false,
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1
+            },
+            "layers": {
+                "mask": 1
+            }
+        }
+    ],
+    "other": {
+        "viewAngleList": [],
+        "clipping": {
+            "size": 20,
+            "clipList": []
+        },
+        "animateEditor": {
+            "sheets": [
+                {
+                    "name": "人物动画表",
+                    "audioUrl": "https://z2586300277.github.io/3d-file-server/files/audio/audio.mp3",
+                    "boundObjects": [
+                        "人物"
+                    ]
+                }
+            ],
+            "studioEnabled": false
+        }
+    }
+}
