@@ -56,22 +56,30 @@ export default {
 
             oldgsap?.kill() // 停止上一个动画
 
-            const distance = model.position.distanceTo(targetPos) // 距离
+            const worldPos = new THREE.Vector3()
+            model.getWorldPosition(worldPos) // model 世界坐标
+
+            const distance = worldPos.distanceTo(targetPos) // 世界空间距离
             if (distance < 0.01) return
 
-            const vector = camera.position.clone().sub(model.position) // camera 和 model 差向量
+            const vector = camera.position.clone().sub(worldPos) // camera 和 model 世界坐标差向量
 
-            // 直接用 atan2 计算朝向，+Math.PI 适配模型正面为 -Z 的情况
+            // 用世界坐标计算朝向，+Math.PI 适配模型正面为 -Z 的情况
             model.rotation.y = Math.atan2(
-                targetPos.x - model.position.x,
-                targetPos.z - model.position.z
+                targetPos.x - worldPos.x,
+                targetPos.z - worldPos.z
             ) + Math.PI
 
-            const duration = distance / 3  // 距离 / 速度
+            // 将世界坐标目标点转为 group 本地坐标，再换算为 model 本地坐标
+            const localTarget = group.worldToLocal(targetPos.clone())
+
+            // 用本地距离计算 duration，使速度与 group 缩放无关（缩放越大本地距离越小，duration 同步缩短）
+            const localDistance = model.position.distanceTo(localTarget)
+            const duration = localDistance / 3
 
             oldgsap = gsap.to(model.position, {
 
-                x: targetPos.x, y: targetPos.y, z: targetPos.z,
+                x: localTarget.x, y: localTarget.y, z: localTarget.z,
                 duration, ease: 'none',
 
                 onStart: () => {
@@ -81,9 +89,10 @@ export default {
                 },
 
                 onUpdate: () => {
-                    mixer.update(0) // 动画帧（由 addUpdateListener 驱动，此处仅保持兼容）
-                    if (controls) controls.target.copy(model.position) // 目标跟随
-                    camera.position.lerp(model.position.clone().add(vector), 0.1) // 相机跟随
+                    const wp = new THREE.Vector3()
+                    model.getWorldPosition(wp)
+                    if (controls) controls.target.copy(wp) // 目标跟随（世界坐标）
+                    camera.position.lerp(wp.clone().add(vector), 0.1) // 相机跟随
                 },
 
                 onComplete: () => {
