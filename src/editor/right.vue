@@ -183,6 +183,10 @@ const datalist = reactive([
         url: 'https://z2586300277.github.io/three-editor/dist/files/scene/skyBox0/'
     },
     {
+        name: '晴天',
+        url: 'https://z2586300277.github.io/3d-file-server/files/sky/skyBox1/'
+    },
+    {
         name: '森林',
         url: 'https://z2586300277.github.io/three-editor/dist/files/scene/skyBox8/'
     },
