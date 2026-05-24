@@ -79,6 +79,21 @@ function safeColor(hex) {
   return /^[0-9a-fA-F]{6}$/.test(h) ? `#${h.toLowerCase()}` : null
 }
 
+function safeHexInt(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return clampN(Math.floor(v), 0, 0xffffff)
+  if (typeof v === 'string') {
+    const c = safeColor(v.startsWith('#') ? v : `#${v.replace(/^#/, '').padStart(6, '0')}`)
+    return c ? parseInt(c.slice(1), 16) : null
+  }
+  return null
+}
+
+function vec3Input(v, lo = -MAX_POS, hi = MAX_POS) {
+  if (Array.isArray(v) && v.length === 3) return safeVec3(v, lo, hi)
+  if (v && typeof v === 'object' && v.x != null) return safeVec3([v.x, v.y, v.z], lo, hi)
+  return null
+}
+
 function clampParam(key, val) {
   if (typeof val !== 'number') return val
   const lim = PARAM_LIMITS[key]
@@ -239,6 +254,8 @@ function detail(o, opts = {}) {
     if (m?.color) d.material = { color: `#${m.color.getHexString()}`, opacity: r(m.opacity ?? 1) }
   })
   if (o.isLight) d.light = { intensity: r(o.intensity ?? 1), color: o.color ? `#${o.color.getHexString()}` : undefined }
+  if (o.isMesh) d.shadow = { castShadow: !!o.castShadow, receiveShadow: !!o.receiveShadow }
+  if (o.renderOrder) d.renderOrder = o.renderOrder
   if (o.animations?.length) d.animations = listAnimInfo(o)
   const animPlay = readAnimationPlayParams(o)
   if (animPlay) d.animationPlay = animPlay
@@ -515,13 +532,13 @@ function resolveModelUrl(urlOrName) {
   return m || null
 }
 
-function setProps(editor, { id, name, visible, position, rotation, scale, color, opacity, intensity }) {
+function setProps(editor, { id, name, visible, position, rotation, scale, color, opacity, intensity, castShadow, receiveShadow, renderOrder }) {
   const { obj, error } = findEditable(editor.scene, id)
   if (error) return { error }
   if (name != null) obj.name = String(name).slice(0, 128)
   if (visible != null) obj.visible = !!visible
   if (position) {
-    const p = safeVec3(position)
+    const p = vec3Input(position)
     if (!p) return { error: 'position 无效，需 3 个有限数值' }
     obj.position.set(...p)
   }
@@ -536,6 +553,14 @@ function setProps(editor, { id, name, visible, position, rotation, scale, color,
     obj.scale.set(...s)
   }
   if (intensity != null && obj.isLight) obj.intensity = clampN(intensity, 0, MAX_INTENSITY)
+  if (renderOrder != null) obj.renderOrder = clampN(renderOrder, -1000, 1000)
+  if (castShadow != null || receiveShadow != null) {
+    obj.traverse?.(c => {
+      if (!c.isMesh) return
+      if (castShadow != null) c.castShadow = !!castShadow
+      if (receiveShadow != null) c.receiveShadow = !!receiveShadow
+    })
+  }
   const hex = color ? safeColor(color.startsWith('#') ? color : `#${color}`) : null
   if (color && !hex) return { error: 'color 无效，需 #rrggbb 格式' }
   if (hex && obj.isLight?.color) obj.color.set(hex)
@@ -749,10 +774,100 @@ function setEnv(editor, name) {
   return { env: name }
 }
 
-function setHelpers(editor, grid, axes) {
-  if (grid != null) editor.handler.helpers.grid.showGrid = grid
-  if (axes != null) editor.handler.helpers.axes.showAxes = axes
-  return { grid: editor.handler.helpers.grid.showGrid, axes: editor.handler.helpers.axes.showAxes }
+function refreshEditorGrid(editor) {
+  const g = editor.handler?.helpers?.grid
+  if (!g) return
+  const scene = editor.scene
+  if (g.gridHelper) {
+    scene.remove(g.gridHelper)
+    g.gridHelper.geometry?.dispose()
+    const m = g.gridHelper.material
+    ;[].concat(m).forEach(x => x?.dispose?.())
+    g.gridHelper = null
+  }
+  if (g.showGrid) {
+    g.gridHelper = new THREE.GridHelper(g.size, g.divisions, g.colorCenterLine ?? 0x444444, g.colorGrid ?? 0x888888)
+    scene.add(g.gridHelper)
+  }
+}
+
+function applyHelpersPatch(editor, { grid, axes, box3 } = {}) {
+  const h = editor.handler?.helpers
+  if (!h) return { error: '编辑器 helpers 未就绪' }
+  let needGridRefresh = false
+  const g = h.grid
+  const ax = h.axes
+  const b = h.box3
+  if (grid && g) {
+    if (grid.showGrid != null) { g.showGrid = !!grid.showGrid; if (g.showGrid) needGridRefresh = true }
+    if (grid.size != null) { g.size = clampN(grid.size, 1, 10000); needGridRefresh = true }
+    if (grid.divisions != null) { g.divisions = clampN(grid.divisions, 1, 200); needGridRefresh = true }
+    if (grid.colorCenterLine != null) {
+      const c = safeHexInt(grid.colorCenterLine)
+      if (c != null) { g.colorCenterLine = c; needGridRefresh = true }
+    }
+    if (grid.colorGrid != null) {
+      const c = safeHexInt(grid.colorGrid)
+      if (c != null) { g.colorGrid = c; needGridRefresh = true }
+    }
+  }
+  if (axes && ax) {
+    if (axes.showAxes != null) ax.showAxes = !!axes.showAxes
+    if (axes.axesLength != null) ax.axesLength = clampN(axes.axesLength, 1, 10000)
+  }
+  if (box3 && b) {
+    if (box3.useBox3 != null) b.useBox3 = !!box3.useBox3
+    if (box3.color != null) {
+      const c = safeHexInt(box3.color)
+      if (c != null) b.color = c
+    }
+  }
+  if (needGridRefresh) safeCall(() => refreshEditorGrid(editor), 'refreshGrid')
+  return null
+}
+
+function readHelpersSnapshot(editor) {
+  const g = editor.handler?.helpers?.grid
+  const ax = editor.handler?.helpers?.axes
+  const b = editor.handler?.helpers?.box3
+  return {
+    grid: g?.showGrid ?? null,
+    axes: ax?.showAxes ?? null,
+    size: g?.size != null ? r(g.size) : null,
+    divisions: g?.divisions ?? null,
+    cellSize: g?.size && g?.divisions ? r(g.size / g.divisions) : null,
+    colorCenterLine: g?.colorCenterLine ?? null,
+    colorGrid: g?.colorGrid ?? null,
+    axesLength: ax?.axesLength != null ? r(ax.axesLength) : null,
+    useBox3: b?.useBox3 ?? null,
+    box3Color: b?.color ?? null,
+  }
+}
+
+function setHelpers(editor, input = {}) {
+  const { grid, axes, size, divisions, colorCenterLine, colorGrid, axesLength, useBox3, box3Color } = input
+  const helpers = {}
+  if (grid != null || size != null || divisions != null || colorCenterLine != null || colorGrid != null) {
+    helpers.grid = {}
+    if (grid != null) helpers.grid.showGrid = !!grid
+    if (size != null) helpers.grid.size = size
+    if (divisions != null) helpers.grid.divisions = divisions
+    if (colorCenterLine != null) helpers.grid.colorCenterLine = colorCenterLine
+    if (colorGrid != null) helpers.grid.colorGrid = colorGrid
+  }
+  if (axes != null || axesLength != null) {
+    helpers.axes = {}
+    if (axes != null) helpers.axes.showAxes = !!axes
+    if (axesLength != null) helpers.axes.axesLength = axesLength
+  }
+  if (useBox3 != null || box3Color != null) {
+    helpers.box3 = {}
+    if (useBox3 != null) helpers.box3.useBox3 = !!useBox3
+    if (box3Color != null) helpers.box3.color = box3Color
+  }
+  const err = applyHelpersPatch(editor, helpers)
+  if (err) return err
+  return readHelpersSnapshot(editor)
 }
 
 const AI_ANIM = Symbol('aiAnim')
@@ -939,6 +1054,200 @@ function stopModelAnimation(editor, { id }) {
   return { id: model.id, stopped: true, animationPlay: readAnimationPlayParams(model) }
 }
 
+const EDITOR_SETTING_KEYS = ['scene', 'perspectiveCamera', 'webglRenderer', 'orbitControls', 'transformControls', 'effectComposer', 'handler', 'other']
+const EFFECT_PASS_KEYS = new Set(['fxaaPass', 'outlinePass', 'outputPass', 'saoPass', 'screenMaskPass', 'ssrPass', 'unrealBloomPass'])
+const RENDER_WAYS = new Set(['effectComposer', 'webglRenderer'])
+const TC_MODES = new Set(['translate', 'rotate', 'scale'])
+const TC_SPACES = new Set(['world', 'local'])
+const HANDLER_MODES = new Set(['transform', 'select', 'none'])
+const OUTPUT_COLOR_SPACES = new Set(['srgb', 'srgb-linear', 'display-p3', 'linear-srgb'])
+const RENDER_LIST_NAMES = new Set(['stats', 'controls', 'scene', 'css3DRender', 'css2DRender'])
+
+export function getEditorSettings(editor) {
+  const saved = editor.saveSceneEdit?.()
+  if (!saved) return { error: '编辑器未就绪' }
+  const out = {}
+  for (const k of EDITOR_SETTING_KEYS) if (saved[k]) out[k] = saved[k]
+  return out
+}
+
+function patchSceneSettings(scene, p) {
+  if (p.backgroundBlurriness != null) scene.backgroundBlurriness = clampN(p.backgroundBlurriness, 0, 1)
+  if (p.backgroundIntensity != null) scene.backgroundIntensity = clampN(p.backgroundIntensity, 0, 10)
+  if (p.environmentEnabled != null) scene.environmentEnabled = !!p.environmentEnabled
+}
+
+function patchCameraSettings(cam, p) {
+  if (p.fov != null) cam.fov = clampN(p.fov, 1, 179)
+  if (p.near != null) cam.near = clampN(p.near, 0.001, 1000)
+  if (p.far != null) cam.far = clampN(p.far, 1, 1e7)
+  if (cam.near >= cam.far) return { error: 'perspectiveCamera: near 必须小于 far' }
+  if (p.zoom != null) cam.zoom = clampN(p.zoom, 0.01, 10)
+  if (p.filmOffset != null) cam.filmOffset = clampN(p.filmOffset, -10, 10)
+  if (p.filmGauge != null) cam.filmGauge = clampN(p.filmGauge, 1, 100)
+  if (p.position) {
+    const pos = vec3Input(p.position)
+    if (!pos) return { error: 'perspectiveCamera.position 无效' }
+    cam.position.set(...pos)
+  }
+  safeCall(() => cam.updateProjectionMatrix?.(), 'updateProjectionMatrix')
+  return null
+}
+
+function patchRendererSettings(r, p) {
+  if (p.outputColorSpace != null) {
+    if (!OUTPUT_COLOR_SPACES.has(p.outputColorSpace)) return { error: `webglRenderer.outputColorSpace 无效: ${p.outputColorSpace}` }
+    r.outputColorSpace = p.outputColorSpace
+  }
+  if (p.toneMapping != null) r.toneMapping = clampN(p.toneMapping, 0, 7)
+  if (p.toneMappingExposure != null) r.toneMappingExposure = clampN(p.toneMappingExposure, 0, 10)
+  if (p.color != null) {
+    const c = safeHexInt(p.color)
+    if (c != null) r.setClearColor?.(c, r.getClearAlpha?.() ?? 0)
+  }
+  if (p.opacity != null) r.setClearAlpha?.(clampN(p.opacity, 0, 1))
+  if (p.shadowMap) {
+    if (p.shadowMap.enabled != null) r.shadowMap.enabled = !!p.shadowMap.enabled
+    if (p.shadowMap.type != null) r.shadowMap.type = clampN(p.shadowMap.type, 0, 2)
+  }
+  if (p.sortObjects != null) r.sortObjects = !!p.sortObjects
+  if (p.localClippingEnabled != null) r.localClippingEnabled = !!p.localClippingEnabled
+  if (p.autoClear != null) r.autoClear = !!p.autoClear
+  if (p.autoClearColor != null) r.autoClearColor = !!p.autoClearColor
+  p.renderListCompare?.forEach(item => {
+    if (!RENDER_LIST_NAMES.has(item.name)) return
+    const hit = r.renderListCompare?.find(x => x.name === item.name)
+    if (hit && item.enabled != null) hit.enabled = !!item.enabled
+  })
+  safeCall(() => r.refreshRenderList?.(), 'refreshRenderList')
+  return null
+}
+
+function patchControlsSettings(c, p) {
+  const setB = (k) => { if (p[k] != null) c[k] = !!p[k] }
+  const setN = (k, lo, hi) => { if (p[k] != null) c[k] = clampN(p[k], lo, hi) }
+  setB('autoRotate'); setN('autoRotateSpeed', 0, 30)
+  setB('enableDamping'); setN('dampingFactor', 0, 1)
+  setN('minDistance', 0, MAX_POS); setN('maxDistance', 0, MAX_POS)
+  if (p.maxAzimuthAngle != null) c.maxAzimuthAngle = clampN(p.maxAzimuthAngle, -Math.PI * 4, Math.PI * 4)
+  if (p.minAzimuthAngle != null) c.minAzimuthAngle = clampN(p.minAzimuthAngle, -Math.PI * 4, Math.PI * 4)
+  setN('maxPolarAngle', 0, Math.PI * 2); setN('minPolarAngle', 0, Math.PI * 2)
+  setN('maxTargetRadius', 0, MAX_POS); setN('minTargetRadius', 0, MAX_POS)
+  setB('enablePan'); setN('panSpeed', 0, 10)
+  setB('enableRotate'); setN('rotateSpeed', 0, 10)
+  setB('enableZoom'); setN('zoomSpeed', 0, 10)
+  setB('zoomToCursor')
+  if (p.target) {
+    const t = vec3Input(p.target)
+    if (!t) return { error: 'orbitControls.target 无效' }
+    c.target.set(...t)
+  }
+  safeCall(() => c.update?.(), 'controls.update')
+  return null
+}
+
+function patchTransformControlsSettings(tc, p) {
+  if (p.mode != null) {
+    if (!TC_MODES.has(p.mode)) return { error: `transformControls.mode 无效: ${p.mode}` }
+    tc.mode = p.mode
+  }
+  if (p.space != null) {
+    if (!TC_SPACES.has(p.space)) return { error: `transformControls.space 无效: ${p.space}` }
+    tc.space = p.space
+  }
+  if (p.size != null) tc.size = clampN(p.size, 0.1, 5)
+  if (p.showX != null) tc.showX = !!p.showX
+  if (p.showY != null) tc.showY = !!p.showY
+  if (p.showZ != null) tc.showZ = !!p.showZ
+  if ('translationSnap' in p) tc.translationSnap = p.translationSnap === null ? null : clampN(p.translationSnap, 0, 100)
+  if ('rotationSnap' in p) tc.rotationSnap = p.rotationSnap === null ? null : clampN(p.rotationSnap, 0, Math.PI)
+  if ('scaleSnap' in p) tc.scaleSnap = p.scaleSnap === null ? null : clampN(p.scaleSnap, 0, 10)
+  return null
+}
+
+function patchHandlerSettings(editor, p) {
+  const h = editor.handler
+  if (!h) return { error: '编辑器 handler 未就绪' }
+  if (p.mode != null) {
+    if (!HANDLER_MODES.has(p.mode)) return { error: `handler.mode 无效: ${p.mode}` }
+    h.mode = p.mode
+  }
+  if (p.selectChildEnabled != null) h.selectChildEnabled = !!p.selectChildEnabled
+  if (p.selectChildLevel != null) h.selectChildLevel = clampN(p.selectChildLevel, 1, 10)
+  if (p.stats) {
+    if (p.stats.showStats != null) h.stats.showStats = !!p.stats.showStats
+    if (p.stats.statsMode != null) h.stats.statsMode = clampN(p.stats.statsMode, 0, 2)
+  }
+  if (p.helpers) {
+    const err = applyHelpersPatch(editor, p.helpers)
+    if (err) return err
+  }
+  return null
+}
+
+function patchOtherSettings(editor, p) {
+  const other = editor.other
+  if (!other) return { error: '编辑器 other 未就绪' }
+  if (p.clipping?.size != null) {
+    if (!other.clipping) other.clipping = { size: 20, clipList: [] }
+    other.clipping.size = clampN(p.clipping.size, 0.1, 1000)
+  }
+  return null
+}
+
+function patchEffectComposerSettings(ec, p) {
+  const skipped = []
+  if (p.renderWay != null) {
+    if (!RENDER_WAYS.has(p.renderWay)) {
+      skipped.push(`renderWay:${p.renderWay}`)
+    } else {
+      ec.renderWay = p.renderWay
+    }
+  }
+  const ep = ec?.effectPass
+  if (!ep) return skipped
+  for (const [key, val] of Object.entries(p)) {
+    if (key === 'renderWay' || val == null || typeof val !== 'object') continue
+    if (!EFFECT_PASS_KEYS.has(key)) { skipped.push(key); continue }
+    const pass = ep[key]
+    if (!pass) { skipped.push(key); continue }
+    try {
+      if (val.enabled != null) pass.enabled = !!val.enabled
+      if (val.order != null) pass.order = clampN(val.order, 0, 100)
+      pass.originInfo?.setStorage?.(pass, val)
+    } catch { skipped.push(key) }
+  }
+  safeCall(() => ec.refreshPassSort?.(), 'refreshPassSort')
+  return skipped
+}
+
+function setEditorSettings(editor, input) {
+  const keys = Object.keys(input)
+  const unknown = keys.filter(k => !EDITOR_SETTING_KEYS.includes(k))
+  if (unknown.length) return { error: `未知配置段: ${unknown.join(', ')}`, allowed: EDITOR_SETTING_KEYS }
+  if (!keys.length) return { error: '未提供任何配置' }
+
+  if (input.scene) patchSceneSettings(editor.scene, input.scene)
+  let err = input.perspectiveCamera ? patchCameraSettings(editor.camera, input.perspectiveCamera) : null
+  if (err) return err
+  err = input.webglRenderer ? patchRendererSettings(editor.renderer, input.webglRenderer) : null
+  if (err) return err
+  err = input.orbitControls ? patchControlsSettings(editor.controls, input.orbitControls) : null
+  if (err) return err
+  err = input.transformControls ? patchTransformControlsSettings(editor.transformControls, input.transformControls) : null
+  if (err) return err
+  err = input.handler ? patchHandlerSettings(editor, input.handler) : null
+  if (err) return err
+  err = input.other ? patchOtherSettings(editor, input.other) : null
+  if (err) return err
+  const passSkipped = input.effectComposer
+    ? patchEffectComposerSettings(editor.effectComposer, input.effectComposer)
+    : []
+  const result = getEditorSettings(editor)
+  if (passSkipped.length) result.passSkipped = passSkipped
+  return result
+}
+
 export const SCENE_SYSTEM = `你是 Three.js 场景编辑助手。操作前先查询，不要猜坐标或参数。
 
 安全规则（必须遵守）：
@@ -948,36 +1257,64 @@ export const SCENE_SYSTEM = `你是 Three.js 场景编辑助手。操作前先�
 - 数值参数保持合理范围（count≤5000，opacity 0-1，scale>0）
 - 操作返回 error 时停止重试，不要连续盲目修改
 - 每次只改少量属性，改完可 getDetail 确认
+- setEditorSettings 只改 getEditorSettings 返回的配置段/字段，不可臆造 pass 名
 
 空间：getDetail/getSelected/getGridInfo
+编辑器：getEditorSettings → setEditorSettings（scene/相机/renderer/controls/后处理/handler/helpers/clipping）
 参数：getObjectParams → setObjectParams（仅写 scene 对象属性）
-变换：setProps（position/rotation/scale/color）
+变换：setProps（position/rotation/scale/color/castShadow/receiveShadow/renderOrder）
 动画：listAnimations（含 animationPlay 初始加载参数）→ setAnimationPlayParams / playAnimation / stopAnimation
   animationPlay 字段：initPlay、speed、loop、startTime、clips[].play（与编辑器面板一致）
 加：addMesh, addMeshes, addModel(initPlay/index 可加载即播), addComponent, addLight
-读：listObjects, getCamera, listMeshes, listModels, listComponents, listScenes, listSkies, listAnimations
-改：setProps, setObjectParams, setAnimationPlayParams, deleteObject, playAnimation, stopAnimation
+读：listObjects, getCamera, getEditorSettings, listMeshes, listModels, listComponents, listScenes, listSkies, listAnimations
+改：setProps, setObjectParams, setEditorSettings, setAnimationPlayParams, deleteObject, playAnimation, stopAnimation
 视角：selectObject, focusObject, focusView
-场景：loadScene, setSky, setEnv, setHelpers`
+场景：loadScene, setSky, setEnv, setHelpers（网格/坐标轴/包围盒辅助）
+查询：listObjects 支持 name/type/lightsOnly 过滤`
 
 const vec3 = z.tuple([z.number(), z.number(), z.number()]).optional()
 const vec3req = z.tuple([z.number(), z.number(), z.number()])
+const vec3flex = z.union([
+  z.tuple([z.number(), z.number(), z.number()]),
+  z.object({ x: z.number(), y: z.number(), z: z.number() }),
+]).optional()
+const hexColor = z.union([z.number(), z.string()])
+const passPatch = z.object({
+  enabled: z.boolean().optional(),
+  order: z.number().optional(),
+}).catchall(z.union([z.number(), z.boolean(), z.string()]))
 
-export function listObjects(editor, deep = false) {
-  if (!deep) return editor.scene.children.filter(isObj).map(brief)
-  const out = []
-  editor.scene.traverse(o => { if (isObj(o)) out.push(brief(o)) })
-  return out
+function matchObjectFilter(o, { name, type, lightsOnly } = {}) {
+  if (lightsOnly && !o.isLight) return false
+  if (name && !(o.name || '').includes(name)) return false
+  if (type) {
+    const t = o.designType || o.type
+    if (t !== type && o.type !== type && o.editorType !== type) return false
+  }
+  return true
+}
+
+export function listObjects(editor, opts = {}) {
+  const { deep, name, type, lightsOnly } = typeof opts === 'boolean' ? { deep: opts } : opts
+  const raw = deep
+    ? (() => { const out = []; editor.scene.traverse(o => { if (isObj(o)) out.push(o) }); return out })()
+    : editor.scene.children.filter(isObj)
+  return raw.filter(o => matchObjectFilter(o, { name, type, lightsOnly })).map(brief)
 }
 
 export function createSceneTools(editor) {
   return {
     listObjects: guardTool({
-      description: '列出场景对象，含 worldPosition 和 bounds。deep=true 含所有嵌套子对象',
-      inputSchema: z.object({ deep: z.boolean().optional().describe('是否递归列出子对象') }),
-      execute: ({ deep }) => ({
+      description: '列出场景对象，含 worldPosition 和 bounds。可按 name/type 过滤，lightsOnly 仅灯光',
+      inputSchema: z.object({
+        deep: z.boolean().optional().describe('是否递归列出子对象'),
+        name: z.string().optional().describe('名称包含匹配'),
+        type: z.string().optional().describe('类型匹配，如 Mesh、AmbientLight、isLight'),
+        lightsOnly: z.boolean().optional().describe('仅返回灯光'),
+      }),
+      execute: (input) => ({
         selectedId: editor.transformControls.object?.id ?? null,
-        objects: listObjects(editor, !!deep),
+        objects: listObjects(editor, input),
       }),
     }),
     getSelected: guardTool({
@@ -1083,13 +1420,125 @@ export function createSceneTools(editor) {
       inputSchema: z.object({}),
       execute: () => ({ position: v3(editor.camera.position), target: v3(editor.controls.target) }),
     }),
+    getEditorSettings: guardTool({
+      description: '读取编辑器全局配置：scene/webglRenderer/orbitControls/effectComposer/相机等（来自 saveSceneEdit）',
+      inputSchema: z.object({}),
+      execute: () => getEditorSettings(editor),
+    }),
+    setEditorSettings: guardTool({
+      description: '修改编辑器全局配置（scene/相机/renderer/controls/后处理/handler/clipping），不重置场景',
+      inputSchema: z.object({
+        scene: z.object({
+          backgroundBlurriness: z.number().min(0).max(1).optional(),
+          backgroundIntensity: z.number().min(0).max(10).optional(),
+          environmentEnabled: z.boolean().optional(),
+        }).optional(),
+        perspectiveCamera: z.object({
+          fov: z.number().min(1).max(179).optional(),
+          near: z.number().min(0.001).max(1000).optional(),
+          far: z.number().min(1).max(1e7).optional(),
+          zoom: z.number().min(0.01).max(10).optional(),
+          filmOffset: z.number().min(-10).max(10).optional(),
+          filmGauge: z.number().min(1).max(100).optional(),
+          position: vec3flex,
+        }).optional(),
+        webglRenderer: z.object({
+          outputColorSpace: z.enum(['srgb', 'srgb-linear', 'display-p3', 'linear-srgb']).optional(),
+          toneMapping: z.number().int().min(0).max(7).optional(),
+          toneMappingExposure: z.number().min(0).max(10).optional(),
+          color: hexColor.optional().describe('清屏色，十六进制整数或 #rrggbb'),
+          opacity: z.number().min(0).max(1).optional().describe('清屏透明度'),
+          shadowMap: z.object({ enabled: z.boolean().optional(), type: z.number().int().min(0).max(2).optional() }).optional(),
+          sortObjects: z.boolean().optional(),
+          localClippingEnabled: z.boolean().optional(),
+          autoClear: z.boolean().optional(),
+          autoClearColor: z.boolean().optional(),
+          renderListCompare: z.array(z.object({
+            name: z.enum(['stats', 'controls', 'scene', 'css3DRender', 'css2DRender']),
+            enabled: z.boolean().optional(),
+          })).optional(),
+        }).optional(),
+        orbitControls: z.object({
+          autoRotate: z.boolean().optional(),
+          autoRotateSpeed: z.number().min(0).max(30).optional(),
+          enableDamping: z.boolean().optional(),
+          dampingFactor: z.number().min(0).max(1).optional(),
+          minDistance: z.number().optional(),
+          maxDistance: z.number().optional(),
+          maxTargetRadius: z.number().optional(),
+          minTargetRadius: z.number().optional(),
+          enablePan: z.boolean().optional(),
+          panSpeed: z.number().optional(),
+          enableRotate: z.boolean().optional(),
+          rotateSpeed: z.number().optional(),
+          enableZoom: z.boolean().optional(),
+          zoomSpeed: z.number().optional(),
+          zoomToCursor: z.boolean().optional(),
+          target: vec3flex,
+        }).optional(),
+        transformControls: z.object({
+          mode: z.enum(['translate', 'rotate', 'scale']).optional(),
+          space: z.enum(['world', 'local']).optional(),
+          size: z.number().optional(),
+          showX: z.boolean().optional(),
+          showY: z.boolean().optional(),
+          showZ: z.boolean().optional(),
+          translationSnap: z.number().min(0).max(100).nullable().optional(),
+          rotationSnap: z.number().min(0).max(Math.PI).nullable().optional(),
+          scaleSnap: z.number().min(0).max(10).nullable().optional(),
+        }).optional(),
+        effectComposer: z.object({
+          renderWay: z.enum(['effectComposer', 'webglRenderer']).optional(),
+          fxaaPass: passPatch.optional(),
+          outlinePass: passPatch.optional(),
+          outputPass: passPatch.optional(),
+          saoPass: passPatch.optional(),
+          screenMaskPass: passPatch.optional(),
+          ssrPass: passPatch.optional(),
+          unrealBloomPass: passPatch.optional(),
+        }).optional(),
+        handler: z.object({
+          mode: z.enum(['transform', 'select', 'none']).optional().describe('编辑器交互模式'),
+          selectChildEnabled: z.boolean().optional(),
+          selectChildLevel: z.number().int().min(1).max(10).optional(),
+          stats: z.object({
+            showStats: z.boolean().optional(),
+            statsMode: z.number().int().min(0).max(2).optional(),
+          }).optional(),
+          helpers: z.object({
+            grid: z.object({
+              showGrid: z.boolean().optional(),
+              size: z.number().min(1).max(10000).optional(),
+              divisions: z.number().int().min(1).max(200).optional(),
+              colorCenterLine: hexColor.optional(),
+              colorGrid: hexColor.optional(),
+            }).optional(),
+            axes: z.object({
+              showAxes: z.boolean().optional(),
+              axesLength: z.number().min(1).max(10000).optional(),
+            }).optional(),
+            box3: z.object({
+              useBox3: z.boolean().optional(),
+              color: hexColor.optional(),
+            }).optional(),
+          }).optional(),
+        }).optional(),
+        other: z.object({
+          clipping: z.object({ size: z.number().min(0.1).max(1000).optional() }).optional(),
+        }).optional(),
+      }),
+      execute: (input) => setEditorSettings(editor, input),
+    }),
     setProps: guardTool({
-      description: '修改对象属性（含灯光 intensity）',
+      description: '修改对象属性（含灯光 intensity、阴影、renderOrder）',
       inputSchema: z.object({
         id: z.number(), name: z.string().optional(), visible: z.boolean().optional(),
-        position: vec3, rotation: vec3, scale: vec3,
+        position: vec3flex, rotation: vec3, scale: vec3,
         color: z.string().optional(), opacity: z.number().min(0).max(1).optional(),
         intensity: z.number().min(0).max(MAX_INTENSITY).optional().describe('灯光强度'),
+        castShadow: z.boolean().optional(),
+        receiveShadow: z.boolean().optional(),
+        renderOrder: z.number().int().min(-1000).max(1000).optional(),
       }),
       execute: (input) => setProps(editor, input),
     }),
@@ -1202,9 +1651,19 @@ export function createSceneTools(editor) {
       execute: ({ name }) => setEnv(editor, name),
     }),
     setHelpers: guardTool({
-      description: '显示/隐藏网格和坐标轴',
-      inputSchema: z.object({ grid: z.boolean().optional(), axes: z.boolean().optional() }),
-      execute: ({ grid, axes }) => setHelpers(editor, grid, axes),
+      description: '网格/坐标轴/包围盒辅助：显示、尺寸、颜色、长度',
+      inputSchema: z.object({
+        grid: z.boolean().optional(),
+        axes: z.boolean().optional(),
+        size: z.number().min(1).max(10000).optional().describe('网格总尺寸'),
+        divisions: z.number().int().min(1).max(200).optional().describe('网格分割数'),
+        colorCenterLine: hexColor.optional().describe('网格中心线颜色'),
+        colorGrid: hexColor.optional().describe('网格线颜色'),
+        axesLength: z.number().min(1).max(10000).optional().describe('坐标轴长度'),
+        useBox3: z.boolean().optional().describe('显示选中包围盒'),
+        box3Color: hexColor.optional().describe('包围盒颜色'),
+      }),
+      execute: (input) => setHelpers(editor, input),
     }),
     focusObject: guardTool({
       description: '选中并飞过去',

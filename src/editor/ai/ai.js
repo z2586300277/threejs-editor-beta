@@ -1,6 +1,6 @@
 import { streamText, stepCountIs } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createSceneTools, listObjects, SCENE_SYSTEM } from './scene'
+import { createSceneTools, getEditorSettings, listObjects, SCENE_SYSTEM } from './scene'
 
 const CFG_KEY = 'AI_config'
 const LAYOUT_KEY = 'AI_panel_layout'
@@ -216,5 +216,8 @@ export function savePanelLayout(layout) {
 }
 
 export function mountSceneAI(threeEditor) {
-  window.sceneAI = { list: () => listObjects(threeEditor) }
+  window.sceneAI = {
+    list: () => listObjects(threeEditor),
+    getSettings: () => getEditorSettings(threeEditor),
+  }
 }
