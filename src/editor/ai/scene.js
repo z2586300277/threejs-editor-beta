@@ -239,6 +239,9 @@ function detail(o, opts = {}) {
     if (m?.color) d.material = { color: `#${m.color.getHexString()}`, opacity: r(m.opacity ?? 1) }
   })
   if (o.isLight) d.light = { intensity: r(o.intensity ?? 1), color: o.color ? `#${o.color.getHexString()}` : undefined }
+  if (o.animations?.length) d.animations = listAnimInfo(o)
+  const animPlay = readAnimationPlayParams(o)
+  if (animPlay) d.animationPlay = animPlay
   if (opts.children && o.children?.length) {
     d.children = o.children.map(c => ({ id: c.id, name: c.name || '(未命名)', type: c.designType || c.type }))
   }
@@ -354,6 +357,12 @@ function readCustomProps(obj) {
   const extras = {}
   if (typeof obj.needsUpdate === 'boolean') extras.needsUpdate = obj.needsUpdate
   if (Object.keys(extras).length) custom.extras = extras
+  let node = obj
+  while (node) {
+    const ap = readAnimationPlayParams(node)
+    if (ap) { custom.animationPlay = ap; break }
+    node = node.parent
+  }
   return custom
 }
 
@@ -630,7 +639,7 @@ async function addComponent(editor, label, position, flyTo = false) {
   return { object: detail(mesh) }
 }
 
-function addModel(editor, urlOrName, position = [0, 0, 0], flyTo = true) {
+function addModel(editor, urlOrName, position = [0, 0, 0], flyTo = true, anim = {}) {
   const url = resolveModelUrl(urlOrName)
   if (!url) return { error: `未找到模型「${urlOrName}」`, models: listModels().map(m => m.name) }
   const pos = safeVec3(position) || [0, 0, 0]
@@ -640,9 +649,28 @@ function addModel(editor, urlOrName, position = [0, 0, 0], flyTo = true) {
       loaderService.complete = async model => {
         try {
           model.position.set(...pos)
+          ensureAnimationPlayParams(model)
           editor.transformControls.attach(model)
           if (flyTo) await flyToObject(editor, model, 0.3)
-          resolve({ object: detail(model), url })
+          const result = { object: detail(model), url, animationPlay: readAnimationPlayParams(model) }
+          if (model.animations?.length) {
+            const resolved = resolveAnimIndices(model, anim)
+            const hasAnimOpts = anim.initPlay != null || anim.loop != null || anim.speed != null
+              || anim.startTime != null || resolved.length
+            if (hasAnimOpts) {
+              syncAnimParams(model, resolved, anim.speed, anim.loop, anim.startTime, anim.initPlay)
+              result.animationPlay = readAnimationPlayParams(model)
+            }
+            if (anim.initPlay && !resolved.length) {
+              result.playHint = 'initPlay 需配合 index/indices/name/names'
+            } else if (resolved.length && (anim.initPlay || anim.index != null || anim.indices?.length || anim.name || anim.names?.length)) {
+              const playRes = playModelAnimation(editor, { id: model.id, ...anim, loop: anim.loop ?? true })
+              if (playRes.error) result.playError = playRes.error
+              else result.playing = playRes.playing
+              result.animationPlay = readAnimationPlayParams(model)
+            }
+          }
+          resolve(result)
         } catch (e) {
           resolve({ error: `模型加载后处理失败: ${e?.message || String(e)}` })
         }
@@ -727,6 +755,190 @@ function setHelpers(editor, grid, axes) {
   return { grid: editor.handler.helpers.grid.showGrid, axes: editor.handler.helpers.axes.showAxes }
 }
 
+const AI_ANIM = Symbol('aiAnim')
+
+function listAnimInfo(model) {
+  return model.animations.map((clip, index) => ({
+    index,
+    name: clip.name || `animation_${index}`,
+    duration: r(clip.duration),
+  }))
+}
+
+function ensureAnimationPlayParams(model) {
+  if (!model.animations?.length) return null
+  if (!model.animationPlayParams) {
+    model.animationPlayParams = {
+      initPlay: false, speed: 1, loop: false, startTime: 0,
+      actionIndexs: new Array(model.animations.length).fill(false),
+      frameCallback: () => {},
+    }
+  } else if (model.animationPlayParams.actionIndexs?.length !== model.animations.length) {
+    model.animationPlayParams.actionIndexs = new Array(model.animations.length).fill(false)
+  }
+  return model.animationPlayParams
+}
+
+function readAnimationPlayParams(model) {
+  if (!model?.animations?.length) return null
+  const p = ensureAnimationPlayParams(model)
+  return {
+    initPlay: !!p.initPlay,
+    speed: r(p.speed ?? 1),
+    loop: !!p.loop,
+    startTime: r(p.startTime ?? 0),
+    clips: model.animations.map((clip, i) => ({
+      index: i,
+      name: clip.name || `animation_${i}`,
+      duration: r(clip.duration),
+      play: !!p.actionIndexs?.[i],
+    })),
+  }
+}
+
+function findAnimRoot(scene, id) {
+  let node = id != null ? find(scene, id) : null
+  while (node) {
+    if (node.animations?.length) return node
+    node = node.parent
+  }
+  return null
+}
+
+function resolveAnimIndices(model, { index, indices, name, names } = {}) {
+  const n = model.animations.length
+  const out = new Set()
+  if (index != null && index >= 0 && index < n) out.add(index)
+  indices?.forEach(i => { if (i >= 0 && i < n) out.add(i) })
+  if (name != null) {
+    const i = model.animations.findIndex(c => c.name === name)
+    if (i >= 0) out.add(i)
+  }
+  names?.forEach(nm => {
+    const i = model.animations.findIndex(c => c.name === nm)
+    if (i >= 0) out.add(i)
+  })
+  return [...out]
+}
+
+function ensureAnimRuntime(editor, model) {
+  let anim = model[AI_ANIM]
+  if (anim) return anim
+  const clock = new THREE.Clock()
+  const mixer = new THREE.AnimationMixer(model)
+  const tick = () => {
+    const a = model[AI_ANIM]
+    if (!a?.actions.length) return
+    try { a.mixer.update(a.clock.getDelta()) } catch { /* skip */ }
+  }
+  editor.scene.addUpdateListener?.(tick)
+  anim = { mixer, clock, actions: [], tick }
+  model[AI_ANIM] = anim
+  return anim
+}
+
+function syncAnimParams(model, indices, speed, loop, startTime, initPlay) {
+  const p = ensureAnimationPlayParams(model)
+  if (!p) return
+  p.actionIndexs = model.animations.map((_, i) => indices.includes(i))
+  if (speed != null) p.speed = clampN(speed, -10, 10)
+  if (loop != null) p.loop = !!loop
+  if (startTime != null) p.startTime = clampN(startTime, 0, 1e4)
+  if (initPlay != null) p.initPlay = !!initPlay
+}
+
+function setAnimationPlayParams(editor, input) {
+  const { id, initPlay, speed, loop, startTime, play, index, indices, name, names } = input
+  const err = findEditable(editor.scene, id).error
+  if (err) return { error: err }
+  const model = findAnimRoot(editor.scene, id)
+  if (!model) return { error: '该对象没有 GLB/FBX 自带动画' }
+  const p = ensureAnimationPlayParams(model)
+  if (speed != null) p.speed = clampN(speed, -10, 10)
+  if (loop != null) p.loop = !!loop
+  if (startTime != null) p.startTime = clampN(startTime, 0, 1e4)
+  if (initPlay != null) p.initPlay = !!initPlay
+  const hasPick = index != null || indices?.length || name || names?.length
+  if (hasPick) {
+    const resolved = resolveAnimIndices(model, { index, indices, name, names })
+    p.actionIndexs = model.animations.map((_, i) => resolved.includes(i))
+  }
+  const shouldPlay = play === true || (p.initPlay && p.actionIndexs.some(Boolean))
+  if (shouldPlay && p.actionIndexs.some(Boolean)) {
+    const playRes = playModelAnimation(editor, {
+      id: model.id,
+      indices: p.actionIndexs.map((on, i) => on ? i : -1).filter(i => i >= 0),
+      speed: p.speed, loop: p.loop, startTime: p.startTime,
+    })
+    if (playRes.error) return playRes
+    return { id: model.id, animationPlay: readAnimationPlayParams(model), playing: playRes.playing }
+  }
+  return { id: model.id, animationPlay: readAnimationPlayParams(model) }
+}
+
+function listAnimations(editor, id) {
+  if (id != null) {
+    const model = findAnimRoot(editor.scene, id)
+    if (!model) return { error: `id=${id} 没有自带动画`, hint: '不传 id 可扫描整个场景' }
+    return { id: model.id, name: model.name || '(未命名)', animations: listAnimInfo(model), animationPlay: readAnimationPlayParams(model) }
+  }
+  const models = []
+  editor.scene.traverse(o => {
+    if (!o.animations?.length || models.some(m => m.id === o.id)) return
+    models.push({ id: o.id, name: o.name || '(未命名)', animations: listAnimInfo(o), animationPlay: readAnimationPlayParams(o) })
+  })
+  return { models }
+}
+
+function playModelAnimation(editor, { id, index, indices, name, names, loop = true, speed = 1, startTime = 0 }) {
+  const err = findEditable(editor.scene, id).error
+  if (err) return { error: err }
+  const model = findAnimRoot(editor.scene, id)
+  if (!model) return { error: '该对象没有 GLB/FBX 自带动画', hint: '先用 listAnimations 查看' }
+  const resolved = resolveAnimIndices(model, { index, indices, name, names })
+  if (!resolved.length) {
+    return { error: '未指定有效动画', animations: listAnimInfo(model), hint: '用 index/indices 或 name/names' }
+  }
+  const spd = clampN(speed, -10, 10)
+  const st = clampN(startTime, 0, 1e4)
+  const anim = ensureAnimRuntime(editor, model)
+  anim.actions.forEach(a => { try { a.stop() } catch {} })
+  anim.actions = []
+  const playing = []
+  const infos = listAnimInfo(model)
+  for (const i of resolved) {
+    const clip = model.animations[i]
+    if (!clip) continue
+    try {
+      const action = anim.mixer.clipAction(clip)
+      action.loop = loop ? THREE.LoopRepeat : THREE.LoopOnce
+      action.clampWhenFinished = !loop
+      action.timeScale = spd
+      action.time = st
+      action.play()
+      anim.actions.push(action)
+      playing.push(infos[i])
+    } catch { /* skip bad clip */ }
+  }
+  if (!playing.length) return { error: '动画播放失败' }
+  syncAnimParams(model, resolved, spd, loop, st, true)
+  return { id: model.id, playing, loop: !!loop, speed: spd, animationPlay: readAnimationPlayParams(model) }
+}
+
+function stopModelAnimation(editor, { id }) {
+  const err = findEditable(editor.scene, id).error
+  if (err) return { error: err }
+  const model = findAnimRoot(editor.scene, id)
+  if (!model) return { error: `id=${id} 没有动画可停止` }
+  const anim = model[AI_ANIM]
+  if (anim) {
+    anim.actions.forEach(a => { try { a.stop() } catch {} })
+    anim.actions = []
+  }
+  syncAnimParams(model, [], 1, false, 0, false)
+  return { id: model.id, stopped: true, animationPlay: readAnimationPlayParams(model) }
+}
+
 export const SCENE_SYSTEM = `你是 Three.js 场景编辑助手。操作前先查询，不要猜坐标或参数。
 
 安全规则（必须遵守）：
@@ -740,9 +952,11 @@ export const SCENE_SYSTEM = `你是 Three.js 场景编辑助手。操作前先�
 空间：getDetail/getSelected/getGridInfo
 参数：getObjectParams → setObjectParams（仅写 scene 对象属性）
 变换：setProps（position/rotation/scale/color）
-加：addMesh/addMeshes/addModel/addComponent/addLight
-读：listObjects, getCamera, listMeshes, listModels, listComponents, listScenes, listSkies
-改：setProps, setObjectParams, deleteObject
+动画：listAnimations（含 animationPlay 初始加载参数）→ setAnimationPlayParams / playAnimation / stopAnimation
+  animationPlay 字段：initPlay、speed、loop、startTime、clips[].play（与编辑器面板一致）
+加：addMesh, addMeshes, addModel(initPlay/index 可加载即播), addComponent, addLight
+读：listObjects, getCamera, listMeshes, listModels, listComponents, listScenes, listSkies, listAnimations
+改：setProps, setObjectParams, setAnimationPlayParams, deleteObject, playAnimation, stopAnimation
 视角：selectObject, focusObject, focusView
 场景：loadScene, setSky, setEnv, setHelpers`
 
@@ -822,6 +1036,48 @@ export function createSceneTools(editor) {
       inputSchema: z.object({ label: z.string().describe('组件名，来自 listComponents') }),
       execute: ({ label }) => listComponentSchema(label),
     }),
+    listAnimations: guardTool({
+      description: '列出 GLB/FBX 模型自带动画 clips；不传 id 则扫描场景中所有含动画的模型',
+      inputSchema: z.object({
+        id: z.number().optional().describe('模型对象 id，来自 listObjects'),
+      }),
+      execute: ({ id }) => listAnimations(editor, id),
+    }),
+    playAnimation: guardTool({
+      description: '播放模型自带动画。用 index/indices 或 name/names 指定 clip',
+      inputSchema: z.object({
+        id: z.number(),
+        index: z.number().int().min(0).optional().describe('单个动画索引，来自 listAnimations'),
+        indices: z.array(z.number().int().min(0)).optional().describe('多个动画索引'),
+        name: z.string().optional().describe('单个动画名称'),
+        names: z.array(z.string()).optional().describe('多个动画名称'),
+        loop: z.boolean().optional().describe('是否循环，默认 true'),
+        speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
+        startTime: z.number().min(0).max(10000).optional().describe('起始时间(秒)，默认 0'),
+      }),
+      execute: (input) => playModelAnimation(editor, input),
+    }),
+    stopAnimation: guardTool({
+      description: '停止模型自带动画播放',
+      inputSchema: z.object({ id: z.number() }),
+      execute: ({ id }) => stopModelAnimation(editor, { id }),
+    }),
+    setAnimationPlayParams: guardTool({
+      description: '设置模型 animationPlayParams（初始加载播放、速度、循环、选中 clips），与编辑器动画面板一致',
+      inputSchema: z.object({
+        id: z.number(),
+        initPlay: z.boolean().optional().describe('初始/自动播放开关'),
+        speed: z.number().min(-10).max(10).optional(),
+        loop: z.boolean().optional(),
+        startTime: z.number().min(0).max(10000).optional().describe('开始时间(秒)'),
+        play: z.boolean().optional().describe('立即按当前参数播放'),
+        index: z.number().int().min(0).optional(),
+        indices: z.array(z.number().int().min(0)).optional(),
+        name: z.string().optional(),
+        names: z.array(z.string()).optional(),
+      }),
+      execute: (input) => setAnimationPlayParams(editor, input),
+    }),
     getCamera: guardTool({
       description: '获取当前相机位置和观察目标',
       inputSchema: z.object({}),
@@ -853,13 +1109,19 @@ export function createSceneTools(editor) {
       execute: () => ({ models: listModels() }),
     }),
     addModel: guardTool({
-      description: '加载模型到场景，url 或文件名均可',
+      description: '加载 GLB/FBX 模型。可设 initPlay/index 实现加载后自动播放自带动画',
       inputSchema: z.object({
         urlOrName: z.string().describe('模型 URL 或文件名，来自 listModels'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         flyTo: z.boolean().optional().describe('加载后飞过去，默认 true'),
+        initPlay: z.boolean().optional().describe('初始加载播放，需配合 index/indices'),
+        index: z.number().int().min(0).optional().describe('加载后播放的动画索引'),
+        indices: z.array(z.number().int().min(0)).optional(),
+        loop: z.boolean().optional().describe('是否循环，默认 true'),
+        speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
       }),
-      execute: ({ urlOrName, position, flyTo }) => addModel(editor, urlOrName, position ?? [0, 0, 0], flyTo !== false),
+      execute: ({ urlOrName, position, flyTo, initPlay, index, indices, loop, speed }) =>
+        addModel(editor, urlOrName, position ?? [0, 0, 0], flyTo !== false, { initPlay, index, indices, loop, speed }),
     }),
     listComponents: guardTool({
       description: '列出可添加的组件',
