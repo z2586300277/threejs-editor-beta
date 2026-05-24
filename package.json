@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "3d-tiles-renderer": "^0.4.14",
+    "@ai-sdk/anthropic": "^3.0.79",
     "@element-plus/icons-vue": "^2.3.2",
     "@sparkjsdev/spark": "^2.0.0",
+    "ai": "^6.0.191",
     "cannon-es": "^0.20.0",
     "echarts": "^5.6.0",
     "element-plus": "^2.10.6",
@@ -24,6 +26,7 @@
     "three": "0.180.0",
     "three-edit-cores": "^0.0.19",
     "vue": "^3.5.18",
+    "vue-element-plus-x": "^2.0.3",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {

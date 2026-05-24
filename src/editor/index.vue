@@ -183,6 +183,7 @@
   </div>
 
   <Editor @dblclick="getEvent" :dataCores="dataCores" @emitThreeEditor="emitThreeEditor" class="editor" />
+  <AiPanel v-show="!previewScene" />
 </template>
 
 <script setup>
@@ -192,6 +193,8 @@ import { ElButton, ElSelect, ElOption, ElMessage, ElIcon, ElMessageBox } from 'e
 import { Pointer, Position, RefreshRight, ZoomIn, Remove, Refresh } from '@element-plus/icons-vue'
 import LeftPanel from './left.vue'
 import RightPanel from './right.vue'
+import AiPanel from './ai/aiPanel.vue'
+import { mountSceneAI } from './ai/ai'
 import { useRoute, useRouter } from 'vue-router'
 import { setIndexDB } from './indexDb'
 import { getObjectViews, createGsapAnimation, restoreHistoryHandler } from './lib'
@@ -278,6 +281,7 @@ const emitThreeEditor = (threeEditor) => {
   rightPanel.value.helperConf(threeEditor)
   rightPanel.value.startEditor(threeEditor)
   window.threeEditor = threeEditor
+  mountSceneAI(threeEditor)
 
   // 轮询 handler 状态，值变化时才同步到工具栏 Vue ref
   const tcModeMap = { translate: '平移', rotate: '旋转', scale: '缩放' }
