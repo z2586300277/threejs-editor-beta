@@ -26,3 +26,4 @@ cache
 *.yaml
 .mcp.json
 .claude
+.cursor

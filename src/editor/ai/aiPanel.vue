@@ -64,7 +64,7 @@
         <div v-if="!messages.length" class="ai-empty">
           <div class="ai-empty-icon"><el-icon><ChatDotRound /></el-icon></div>
           <p class="ai-empty-title">想调整什么场景？</p>
-          <p class="ai-empty-desc">用自然语言描述需求，例如改材质、调灯光、移动对象</p>
+          <p class="ai-empty-desc">例如：列出场景对象、把立方体移到 (0,2,0)、改成红色</p>
         </div>
         <BubbleList v-else :list="messages" :max-height="Math.max(120, box.h - (showConfig ? 240 : 130)) + 'px'" />
       </div>
@@ -90,7 +90,7 @@ import { ElMessageBox } from 'element-plus'
 import { ChatDotRound, Close, Plus, Setting, Clock, Delete } from '@element-plus/icons-vue'
 import { BubbleList, XSender } from 'vue-element-plus-x'
 import {
-  chatWithAi, getAiConfig, formatAiError, restoreLayout, savePanelLayout,
+  chatWithSceneAi, getAiConfig, formatAiError, restoreLayout, savePanelLayout,
   loadChats, persistActiveChat, createNewChat, switchChat, deleteChat, getActiveChat, formatChatLabel,
 } from './ai'
 
@@ -214,8 +214,10 @@ async function send() {
   const aiId = ++msgId
   messages.value.push({ id: aiId, content: '', placement: 'start', loading: true })
   const patch = (fields) => { messages.value = messages.value.map(m => m.id === aiId ? { ...m, ...fields } : m) }
+  const history = messages.value.filter(m => m.id !== aiId)
   try {
-    await chatWithAi(text, baseURL.value, apiKey.value, model.value, content => patch({ content, loading: false }))
+    await chatWithSceneAi(text, history, baseURL.value, apiKey.value, model.value,
+      content => patch({ content, loading: false }))
   } catch (e) {
     patch({ content: formatAiError(e), loading: false })
   } finally {

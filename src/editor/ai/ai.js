@@ -1,5 +1,6 @@
-import { streamText } from 'ai'
+import { streamText, stepCountIs } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { createSceneTools, listObjects, SCENE_SYSTEM } from './scene'
 
 const CFG_KEY = 'AI_config'
 const LAYOUT_KEY = 'AI_panel_layout'
@@ -144,18 +145,41 @@ export function formatAiError(err) {
   return msg || '请求失败'
 }
 
-export async function chatWithAi(message, baseURL, apiKey, model, onText) {
+function saveAiConfig(baseURL, apiKey, model) {
   const key = apiKey?.trim()
   if (!key) throw new Error('请填写 DeepSeek API Key')
   const config = { baseURL: normUrl(baseURL), apiKey: key, model: model?.trim() || DEFAULT_AI_CONFIG.model }
   localStorage.setItem(CFG_KEY, JSON.stringify(config))
-  const provider = createAnthropic({ baseURL: config.baseURL, apiKey: key })
-  const { textStream } = streamText({ model: provider(config.model), prompt: message })
+  return config
+}
+
+export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, onText) {
+  const editor = window.threeEditor
+  if (!editor) throw new Error('编辑器尚未就绪，请等待场景加载完成')
+
+  const config = saveAiConfig(baseURL, apiKey, model)
+  const provider = createAnthropic({ baseURL: config.baseURL, apiKey: config.apiKey })
+  const messages = history
+    .filter(m => m.content?.trim() && !m.loading)
+    .map(m => ({ role: m.placement === 'end' ? 'user' : 'assistant', content: m.content.trim() }))
+
+  const result = streamText({
+    model: provider(config.model),
+    system: SCENE_SYSTEM,
+    messages: [...messages, { role: 'user', content: userMessage }],
+    tools: createSceneTools(editor),
+    stopWhen: stepCountIs(12),
+  })
+
   let full = ''
-  for await (const chunk of textStream) {
-    full += chunk
-    onText?.(full)
+  for await (const part of result.fullStream) {
+    if (part.type === 'text-delta') {
+      const chunk = part.text ?? part.delta
+      if (chunk) { full += chunk; onText?.(full) }
+    }
   }
+  full = (await result.text)?.trim() || full || '操作已完成。'
+  onText?.(full)
   return full
 }
 
@@ -180,11 +204,5 @@ export function savePanelLayout(layout) {
 }
 
 export function mountSceneAI(threeEditor) {
-  window.sceneAI = {
-    list() {
-      return threeEditor.scene.children
-        .filter(o => !o.isHelper && o.type !== 'GridHelper')
-        .map(o => ({ id: o.id, name: o.name || '', designType: o.designType || o.type }))
-    },
-  }
+  window.sceneAI = { list: () => listObjects(threeEditor) }
 }
