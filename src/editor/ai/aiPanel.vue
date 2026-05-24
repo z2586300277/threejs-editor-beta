@@ -70,7 +70,7 @@
       </div>
 
       <div class="ai-chat-footer">
-        <XSender ref="senderRef" placeholder="描述你想调整的内容…" :loading="loading" @submit="send" />
+        <XSender ref="senderRef" placeholder="描述你想调整的内容…" :loading="loading" @submit="send" @cancel="stop" />
       </div>
 
       <div
@@ -114,6 +114,7 @@ const senderRef = ref(null)
 const btn = ref(layout.btn)
 const box = ref(layout.box)
 let msgId = active.msgId
+let abortCtrl = null
 
 const save = () => savePanelLayout({ btn: btn.value, box: box.value, open: open.value, showConfig: showConfig.value })
 const persistChat = () => persistActiveChat(chatStore.value, { msgId, messages: messages.value })
@@ -215,15 +216,29 @@ async function send() {
   messages.value.push({ id: aiId, content: '', placement: 'start', loading: true })
   const patch = (fields) => { messages.value = messages.value.map(m => m.id === aiId ? { ...m, ...fields } : m) }
   const history = messages.value.filter(m => m.id !== aiId)
+  abortCtrl = new AbortController()
+  const { signal } = abortCtrl
   try {
-    await chatWithSceneAi(text, history, baseURL.value, apiKey.value, model.value,
-      content => patch({ content, loading: false }))
+    await chatWithSceneAi(text, history, baseURL.value, apiKey.value, model.value, {
+      signal,
+      onText: content => patch({ content, loading: false }),
+    })
   } catch (e) {
-    patch({ content: formatAiError(e), loading: false })
+    if (!signal.aborted) patch({ content: formatAiError(e), loading: false })
   } finally {
+    if (signal.aborted) {
+      const cur = messages.value.find(m => m.id === aiId)
+      patch({ content: cur?.content?.trim() || '已停止。', loading: false })
+    }
     loading.value = false
+    abortCtrl = null
     persistChat()
   }
+}
+
+function stop() {
+  abortCtrl?.abort()
+  loading.value = false
 }
 </script>
 

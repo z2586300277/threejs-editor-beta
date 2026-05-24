@@ -153,7 +153,7 @@ function saveAiConfig(baseURL, apiKey, model) {
   return config
 }
 
-export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, onText) {
+export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, { onText, signal } = {}) {
   const editor = window.threeEditor
   if (!editor) throw new Error('编辑器尚未就绪，请等待场景加载完成')
 
@@ -169,18 +169,30 @@ export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, mod
     messages: [...messages, { role: 'user', content: userMessage }],
     tools: createSceneTools(editor),
     stopWhen: stepCountIs(12),
+    abortSignal: signal,
   })
 
-  let full = ''
-  for await (const part of result.fullStream) {
-    if (part.type === 'text-delta') {
-      const chunk = part.text ?? part.delta
-      if (chunk) { full += chunk; onText?.(full) }
+  let stepText = ''
+  try {
+    for await (const part of result.fullStream) {
+      if (signal?.aborted) break
+      if (part.type === 'start-step') stepText = ''
+      if (part.type === 'text-delta') {
+        const chunk = part.text ?? part.delta
+        if (!chunk) continue
+        if (chunk.startsWith(stepText) && chunk.length >= stepText.length) stepText = chunk
+        else stepText += chunk
+        onText?.(stepText)
+      }
     }
+    if (signal?.aborted) return stepText || '已停止。'
+    const final = (await result.text)?.trim() || stepText || '操作已完成。'
+    onText?.(final)
+    return final
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') return stepText || '已停止。'
+    throw e
   }
-  full = (await result.text)?.trim() || full || '操作已完成。'
-  onText?.(full)
-  return full
 }
 
 export function restoreLayout({ btnSize = 48, minW = 320, minH = 400 } = {}) {
