@@ -221,6 +221,7 @@ async function send() {
   try {
     await chatWithSceneAi(text, history, baseURL.value, apiKey.value, model.value, {
       signal,
+      onStatus: content => patch({ content, loading: true }),
       onText: content => patch({ content, loading: false }),
     })
   } catch (e) {

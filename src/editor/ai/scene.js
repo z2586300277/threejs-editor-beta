@@ -218,13 +218,45 @@ function isObj(o) {
   return o && !o.isHelper && !o.isTransformControlsRoot && !SKIP.has(o.type)
 }
 
+function isHorizWorld(o) {
+  const rot = worldRotDeg(o)
+  if (Math.abs(Math.abs(rot[0]) - 90) < 12) return true
+  const b = getBounds(o)
+  return !!(b && b.size[1] < 0.05 && b.size[0] > 0.3 && b.size[2] > 0.3)
+}
+
+function isFloorLike(o) {
+  const tag = `${o.name || ''}${o.designType || ''}`
+  if (/地面|floor|ground|gridFloor/i.test(tag)) return true
+  return o.geometry?.type === 'PlaneGeometry' && isHorizWorld(o)
+}
+
+function detectGroundSurface(editor) {
+  let ref = { y: 0, source: 'world origin', id: null }
+  editor.scene.traverse(o => {
+    if (!isObj(o)) return
+    if (!isFloorLike(o) && !o.designType?.includes('Floor')) return
+    const b = getBounds(o)
+    if (!b || !isHorizWorld(o)) return
+    if (b.max[1] >= ref.y - 0.001) {
+      ref = { y: r(b.max[1]), source: o.name || o.designType || o.type, id: o.id }
+    }
+  })
+  return ref
+}
+
 function brief(o) {
   const b = {
     id: o.id, name: o.name || '(未命名)', type: o.designType || o.type,
     visible: o.visible, position: v3(o.position), worldPosition: worldPos(o),
   }
   const bounds = getBounds(o)
-  if (bounds) b.bounds = { center: bounds.center, size: bounds.size }
+  if (bounds) {
+    b.bounds = {
+      center: bounds.center, size: bounds.size,
+      bottomY: bounds.min[1], topY: bounds.max[1],
+    }
+  }
   return b
 }
 
@@ -287,7 +319,89 @@ function getGridInfo(editor, includePoints = true) {
     if (includePoints) Object.assign(item, gridIntersections(o, parsed.size, parsed.divisions))
     grids.push(item)
   })
-  return { grids, hint: '交点坐标可直接用于 addMesh/addModel；1×1 立方体底面贴网格时 y = cellSize/2' }
+  return {
+    grids,
+    hint: '默认不含交点列表；需对齐网格时用 includePoints:true。贴地请用 getSpatialContext + placeOnGround',
+  }
+}
+
+function getSpatialContext(editor, id) {
+  const ground = detectGroundSurface(editor)
+  const cfg = editor.handler?.helpers?.grid
+  const grid = cfg ? {
+    show: cfg.showGrid, size: cfg.size, divisions: cfg.divisions,
+    cellSize: r(cfg.size / cfg.divisions), plane: 'xz',
+  } : null
+  const floors = []
+  editor.scene.traverse(o => {
+    if (!isObj(o)) return
+    const b = getBounds(o)
+    if (!b || !isFloorLike(o)) return
+    floors.push({
+      id: o.id, name: o.name || '(未命名)', designType: o.designType || null,
+      topY: b.max[1], bottomY: b.min[1], size: b.size, horizontal: isHorizWorld(o),
+      worldRotation: worldRotDeg(o),
+    })
+  })
+  let focus = null
+  if (id != null) {
+    const o = find(editor.scene, id)
+    if (!o) focus = { error: `未找到 id=${id}` }
+    else {
+      const b = getBounds(o)
+      focus = {
+        id, name: o.name || '(未命名)', type: o.designType || o.type,
+        bounds: b, bottomY: b?.min[1], topY: b?.max[1],
+        gapToGround: b ? r(ground.y - b.min[1]) : null,
+        worldRotation: worldRotDeg(o), geometry: geomInfo(o),
+      }
+    }
+  }
+  return {
+    axes: { up: '+Y', groundPlane: 'XZ', recommendedGroundY: ground.y, groundRef: ground },
+    grid, floors: floors.slice(0, 8), focus,
+    rules: {
+      pivot: 'position 是轴心不是底面，bottomY=bounds.min.y',
+      planeFlat: 'PlaneGeometry 默认竖立，作地面需 rotation [-90,0,0] 或 placeOnGround(flat:true)',
+      groundScale: '地面已放平后 scale 必须 [S,S,1] 正方形；禁止 [S,1,1] 会变长条',
+      onGround: 'placeOnGround(id) 自动算 y；或 y += recommendedGroundY - bottomY',
+    },
+  }
+}
+
+function placeOnGround(editor, { id, groundY, flat, x, z, refId }) {
+  const { obj, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  let targetY = groundY
+  if (targetY == null) {
+    if (refId != null) {
+      const ref = find(editor.scene, refId)
+      const b = ref && getBounds(ref)
+      targetY = b ? b.max[1] : 0
+    } else {
+      targetY = detectGroundSurface(editor).y
+    }
+  }
+  if (flat) {
+    let mesh = obj.geometry?.type === 'PlaneGeometry' ? obj : null
+    obj.traverse?.(c => { if (!mesh && c.isMesh?.geometry?.type === 'PlaneGeometry') mesh = c })
+    if (mesh && !isHorizWorld(mesh)) mesh.rotation.x = -Math.PI / 2
+  }
+  obj.updateWorldMatrix(true, true)
+  const b = getBounds(obj)
+  if (!b) return { error: '无法计算包围盒' }
+  obj.position.y += targetY - b.min[1]
+  if (x != null || z != null) {
+    const nx = x != null ? clampN(x, -MAX_POS, MAX_POS) : obj.position.x
+    const nz = z != null ? clampN(z, -MAX_POS, MAX_POS) : obj.position.z
+    obj.position.set(nx, obj.position.y, nz)
+  }
+  editor.transformControls.attach(obj)
+  const after = getBounds(obj)
+  return {
+    id: obj.id, groundY: r(targetY), bottomY: after?.min[1],
+    object: detail(obj),
+  }
 }
 
 function findDesign(obj) {
@@ -618,16 +732,34 @@ function addLight(editor, type, position = [0, 5, 0]) {
   return { object: detail(light) }
 }
 
-async function addMesh(editor, type, position = [0, 0, 0], color = '#ffffff', name, flyTo = false) {
+async function addMesh(editor, type, position = [0, 0, 0], color = '#ffffff', name, flyTo = false, opts = {}) {
   const geoFn = MESH_TYPES[type]
   if (!geoFn) return { error: `未知几何体「${type}」`, types: Object.keys(MESH_TYPES) }
   const hex = safeColor(color.startsWith('#') ? color : `#${color}`) || '#ffffff'
   const pos = safeVec3(position) || [0, 0, 0]
-  const mesh = new THREE.Mesh(geoFn(), new THREE.MeshStandardMaterial({ color: hex }))
+  const isGroundPlane = type === '平面' && (opts.onGround || opts.flat || opts.size != null)
+  const geo = isGroundPlane
+    ? new THREE.PlaneGeometry(
+        clampN(opts.size ?? editor.handler?.helpers?.grid?.size ?? 50, 1, 500),
+        clampN(opts.size ?? editor.handler?.helpers?.grid?.size ?? 50, 1, 500),
+      )
+    : geoFn()
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: hex }))
   mesh.editorType = 'isInnerMesh'
   mesh.name = String(name || type).slice(0, 128)
   mesh.position.set(...pos)
+  if (opts.rotation) {
+    const rot = safeVec3(opts.rotation, -3600, 3600)
+    if (rot) mesh.rotation.set(...rot.map(d => d * Math.PI / 180))
+  }
   editor.scene.add(mesh)
+  if (opts.onGround || opts.flat) {
+    const res = placeOnGround(editor, { id: mesh.id, flat: opts.flat ?? type === '平面' })
+    if (res.error) return res
+    editor.transformControls.attach(mesh)
+    if (flyTo) await flyToObject(editor, mesh, 0.3)
+    return { object: res.object, placed: { groundY: res.groundY, bottomY: res.bottomY } }
+  }
   editor.transformControls.attach(mesh)
   if (flyTo) await flyToObject(editor, mesh, 0.3)
   return { object: detail(mesh) }
@@ -1248,29 +1380,36 @@ function setEditorSettings(editor, input) {
   return result
 }
 
-export const SCENE_SYSTEM = `你是 Three.js 场景编辑助手。操作前先查询，不要猜坐标或参数。
+export const SCENE_SYSTEM = `Three.js 场景编辑助手。Y 轴向上，地面为 XZ 平面。
 
-安全规则（必须遵守）：
-- 只修改 listObjects/getDetail 中存在的对象 id
-- 不可修改/删除相机、GridHelper、AxesHelper 等受保护对象
-- setObjectParams 只能改 getObjectParams 返回的已有 params/uniforms 键，不可臆造字段
-- 数值参数保持合理范围（count≤5000，opacity 0-1，scale>0）
-- 操作返回 error 时停止重试，不要连续盲目修改
-- 每次只改少量属性，改完可 getDetail 确认
-- setEditorSettings 只改 getEditorSettings 返回的配置段/字段，不可臆造 pass 名
+【空间 - 必须先查】
+1. 放置/对齐/贴地 → getSpatialContext（一次拿 groundY、网格、已有地面、gapToGround）
+2. 改单个物体 → getDetail(id) 看 bounds.bottomY/topY、worldRotation
+3. 禁止猜坐标；position 是轴心不是底面
 
-空间：getDetail/getSelected/getGridInfo
-编辑器：getEditorSettings → setEditorSettings（scene/相机/renderer/controls/后处理/handler/helpers/clipping）
-参数：getObjectParams → setObjectParams（仅写 scene 对象属性）
-变换：setProps（position/rotation/scale/color/castShadow/receiveShadow/renderOrder）
-动画：listAnimations（含 animationPlay 初始加载参数）→ setAnimationPlayParams / playAnimation / stopAnimation
-  animationPlay 字段：initPlay、speed、loop、startTime、clips[].play（与编辑器面板一致）
-加：addMesh, addMeshes, addModel(initPlay/index 可加载即播), addComponent, addLight
-读：listObjects, getCamera, getEditorSettings, listMeshes, listModels, listComponents, listScenes, listSkies, listAnimations
-改：setProps, setObjectParams, setEditorSettings, setAnimationPlayParams, deleteObject, playAnimation, stopAnimation
-视角：selectObject, focusObject, focusView
-场景：loadScene, setSky, setEnv, setHelpers（网格/坐标轴/包围盒辅助）
-查询：listObjects 支持 name/type/lightsOnly 过滤`
+【贴地与平面 - 高频错误】
+- 落地面：优先 addMesh(平面, onGround:true, flat:true, size:50)；或 addComponent(网格地面)
+- addMesh 地面默认 size=网格尺寸(或50)，已是正方形；不要再 scale [S,1,1] 会变长条
+- 若改 scale：放平后必须 [S,S,1]，local Y 对应 world Z
+- PlaneGeometry 默认竖立，放平用 flat:true
+- 禁止 position.y=0 当贴地
+
+【安全】
+- 只改 listObjects/getDetail 中存在的 id；不可改相机/GridHelper/AxesHelper
+- setObjectParams 只写 getObjectParams 已有键；error 时停止盲目重试
+- 每次少改，改完 getDetail 确认
+
+【效率】
+- 少次工具调用：一次 getSpatialContext 优于多次 getDetail；非必要不调 getEditorSettings
+- listObjects 默认最多 40 条，大场景用 name/type 过滤
+- 简单任务 1-2 步完成，避免反复确认
+
+【工具】
+查：listObjects, getSpatialContext, getDetail, getGridInfo, getCamera, getObjectParams, listAnimations
+加：addMesh(onGround/flat), addModel, addComponent, addLight, addMeshes
+改：setProps, setObjectParams, placeOnGround, setEditorSettings, playAnimation, setAnimationPlayParams
+删/选/视角：deleteObject, selectObject, focusObject, focusView
+场景：loadScene, setSky, setEnv, setHelpers`
 
 const vec3 = z.tuple([z.number(), z.number(), z.number()]).optional()
 const vec3req = z.tuple([z.number(), z.number(), z.number()])
@@ -1302,20 +1441,29 @@ export function listObjects(editor, opts = {}) {
   return raw.filter(o => matchObjectFilter(o, { name, type, lightsOnly })).map(brief)
 }
 
+const LIST_CAP = 40
+let _sceneTools
+
 export function createSceneTools(editor) {
-  return {
+  if (_sceneTools) return _sceneTools
+  _sceneTools = {
     listObjects: guardTool({
-      description: '列出场景对象，含 worldPosition 和 bounds。可按 name/type 过滤，lightsOnly 仅灯光',
+      description: '列出场景对象(最多40)。大场景用 name/type 过滤；贴地用 getSpatialContext',
       inputSchema: z.object({
         deep: z.boolean().optional().describe('是否递归列出子对象'),
         name: z.string().optional().describe('名称包含匹配'),
         type: z.string().optional().describe('类型匹配，如 Mesh、AmbientLight、isLight'),
         lightsOnly: z.boolean().optional().describe('仅返回灯光'),
       }),
-      execute: (input) => ({
-        selectedId: editor.transformControls.object?.id ?? null,
-        objects: listObjects(editor, input),
-      }),
+      execute: (input) => {
+        const all = listObjects(editor, input)
+        const cap = LIST_CAP
+        return {
+          selectedId: editor.transformControls.object?.id ?? null,
+          objects: all.slice(0, cap),
+          ...(all.length > cap ? { truncated: true, total: all.length, hint: '用 name/type 缩小范围' } : {}),
+        }
+      },
     }),
     getSelected: guardTool({
       description: '获取当前选中对象完整空间属性（世界坐标、包围盒、尺寸等）',
@@ -1326,11 +1474,30 @@ export function createSceneTools(editor) {
       },
     }),
     getGridInfo: guardTool({
-      description: '获取 GridHelper 网格参数与交点世界坐标，用于对齐放置物体',
+      description: '网格参数；默认不含交点(省 token)，需网格对齐时 includePoints:true',
       inputSchema: z.object({
-        includePoints: z.boolean().optional().describe('是否返回交点坐标，默认 true'),
+        includePoints: z.boolean().optional().describe('返回网格交点坐标，默认 false'),
       }),
-      execute: ({ includePoints }) => getGridInfo(editor, includePoints !== false),
+      execute: ({ includePoints }) => getGridInfo(editor, !!includePoints),
+    }),
+    getSpatialContext: guardTool({
+      description: '空间上下文：地面高度、已有地面列表、网格、可选单物体 gapToGround。放置/贴地前优先调用',
+      inputSchema: z.object({
+        id: z.number().optional().describe('可选，分析该物体与地面的距离'),
+      }),
+      execute: ({ id }) => getSpatialContext(editor, id),
+    }),
+    placeOnGround: guardTool({
+      description: '将物体底面贴到地面。自动算 y；平面可 flat:true 放平',
+      inputSchema: z.object({
+        id: z.number(),
+        groundY: z.number().optional().describe('目标地面高度，默认取 getSpatialContext.recommendedGroundY'),
+        flat: z.boolean().optional().describe('PlaneGeometry 放平为 XZ 地面，rotation [-90,0,0]'),
+        x: z.number().optional(),
+        z: z.number().optional(),
+        refId: z.number().optional().describe('参考另一物体顶面作为 groundY'),
+      }),
+      execute: (input) => placeOnGround(editor, input),
     }),
     getDetail: guardTool({
       description: '获取对象完整属性：空间信息 + custom(params/uniforms/materials)',
@@ -1570,7 +1737,7 @@ export function createSceneTools(editor) {
         speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
       }),
       execute: ({ urlOrName, position, flyTo, initPlay, index, indices, loop, speed }) =>
-        addModel(editor, urlOrName, position ?? [0, 0, 0], flyTo !== false, { initPlay, index, indices, loop, speed }),
+        addModel(editor, urlOrName, position ?? [0, 0, 0], !!flyTo, { initPlay, index, indices, loop, speed }),
     }),
     listComponents: guardTool({
       description: '列出可添加的组件',
@@ -1602,16 +1769,20 @@ export function createSceneTools(editor) {
       execute: () => ({ types: Object.keys(MESH_TYPES) }),
     }),
     addMesh: guardTool({
-      description: '添加基础几何体 Mesh。position 为世界坐标（场景根下）',
+      description: '添加基础几何体。地面: type=平面 + onGround + flat + size(默认跟网格)',
       inputSchema: z.object({
         type: z.enum(Object.keys(MESH_TYPES)).describe('几何体类型，来自 listMeshes'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         color: z.string().optional().describe('颜色，默认 #ffffff'),
         name: z.string().optional().describe('对象名称'),
+        size: z.number().min(1).max(500).optional().describe('平面边长(正方形)，仅 type=平面 且作地面时用'),
+        rotation: vec3.optional().describe('欧拉角(度)，平面作地面常用 [-90,0,0]'),
+        onGround: z.boolean().optional().describe('添加后自动贴地'),
+        flat: z.boolean().optional().describe('PlaneGeometry 放平，等同 placeOnGround(flat:true)'),
         flyTo: z.boolean().optional(),
       }),
-      execute: ({ type, position, color, name, flyTo }) =>
-        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, !!flyTo),
+      execute: ({ type, position, color, name, size, rotation, onGround, flat, flyTo }) =>
+        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, !!flyTo, { size, rotation, onGround, flat }),
     }),
     addMeshes: guardTool({
       description: '批量添加几何体，适合网格交点批量放置（最多 50 个）',
@@ -1678,4 +1849,5 @@ export function createSceneTools(editor) {
       execute: ({ position, target, duration }) => focusView(editor, position, target, duration ?? 0.5),
     }),
   }
+  return _sceneTools
 }

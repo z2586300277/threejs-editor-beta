@@ -153,7 +153,16 @@ function saveAiConfig(baseURL, apiKey, model) {
   return config
 }
 
-export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, { onText, signal } = {}) {
+const MAX_HISTORY = 12
+const TOOL_STATUS = {
+  listObjects: '列出场景对象', getSpatialContext: '读取空间上下文', getDetail: '读取对象详情',
+  getGridInfo: '读取网格', placeOnGround: '贴地放置', setProps: '修改属性',
+  addMesh: '添加几何体', addModel: '加载模型', addComponent: '添加组件',
+  getEditorSettings: '读取编辑器配置', setEditorSettings: '修改编辑器配置',
+  playAnimation: '播放动画', listAnimations: '列出动画',
+}
+
+export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, { onText, onStatus, signal } = {}) {
   const editor = window.threeEditor
   if (!editor) throw new Error('编辑器尚未就绪，请等待场景加载完成')
 
@@ -162,13 +171,15 @@ export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, mod
   const messages = history
     .filter(m => m.content?.trim() && !m.loading)
     .map(m => ({ role: m.placement === 'end' ? 'user' : 'assistant', content: m.content.trim() }))
+    .slice(-MAX_HISTORY)
 
+  onStatus?.('思考中…')
   const result = streamText({
     model: provider(config.model),
     system: SCENE_SYSTEM,
     messages: [...messages, { role: 'user', content: userMessage }],
     tools: createSceneTools(editor),
-    stopWhen: stepCountIs(12),
+    stopWhen: stepCountIs(8),
     abortSignal: signal,
   })
 
@@ -177,6 +188,10 @@ export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, mod
     for await (const part of result.fullStream) {
       if (signal?.aborted) break
       if (part.type === 'start-step') stepText = ''
+      if (part.type === 'tool-call') {
+        const label = TOOL_STATUS[part.toolName] || part.toolName
+        onStatus?.(`${label}…`)
+      }
       if (part.type === 'text-delta') {
         const chunk = part.text ?? part.delta
         if (!chunk) continue
