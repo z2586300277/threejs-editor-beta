@@ -2,7 +2,7 @@ import { streamText, stepCountIs } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createSceneTools, getEditorSettings, listObjects, SCENE_SYSTEM } from './scene'
 
-const CFG_KEY = 'AI_config'
+const CFG_KEY = 'AI_scene_config'
 const LAYOUT_KEY = 'AI_panel_layout'
 const CHATS_KEY = 'AI_chats'
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
@@ -23,7 +23,7 @@ function loadJson(key, legacyKey) {
 export const DEFAULT_AI_CONFIG = {
   baseURL: 'https://api.deepseek.com/anthropic',
   apiKey: '',
-  model: 'deepseek-v4-pro',
+  model: 'deepseek-v4-flash',
 }
 
 function normUrl(url) {
@@ -134,7 +134,7 @@ export function deleteChat(store, id) {
 }
 
 export function getAiConfig() {
-  const saved = loadJson(CFG_KEY, 'ai_config') || {}
+  const saved = loadJson(CFG_KEY) || {}
   return { ...DEFAULT_AI_CONFIG, ...saved, baseURL: normUrl(saved.baseURL) }
 }
 

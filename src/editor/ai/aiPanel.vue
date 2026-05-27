@@ -4,7 +4,7 @@
       circle
       type="primary"
       class="ai-float-btn"
-      :style="{ left: btn.x + 'px', top: btn.y + 'px' }"
+      :style="{ transform: `translate3d(${btn.x}px, ${btn.y}px, 0)` }"
       @mousedown="onBtnMouseDown"
     >
       <el-icon><ChatDotRound /></el-icon>
@@ -245,8 +245,10 @@ function stop() {
 
 <style scoped>
 .ai-float-btn {
-  position: fixed; z-index: 1000; width: 48px; height: 48px; font-size: 22px;
+  position: fixed; z-index: 1000; top: 0; left: 0; width: 48px; height: 48px; font-size: 22px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: none !important;
+  will-change: transform;
 }
 .ai-chat-box {
   position: fixed; z-index: 1001; display: flex; flex-direction: column;
