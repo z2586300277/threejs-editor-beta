@@ -1,6 +1,6 @@
 import { streamText, stepCountIs } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createSceneTools, getEditorSettings, listObjects, SCENE_SYSTEM } from './scene'
+import { createSceneTools, getEditorSettings, getEditorApi, listObjects, openEditorPanel, runEditorAction, listEditorActions, SCENE_SYSTEM } from './scene'
 
 const CFG_KEY = 'AI_scene_config'
 const LAYOUT_KEY = 'AI_panel_layout'
@@ -155,11 +155,21 @@ function saveAiConfig(baseURL, apiKey, model) {
 
 const MAX_HISTORY = 12
 const TOOL_STATUS = {
+  getEditorApi: '读取编辑器 API', listEditorActions: '读取 action 目录', runEditorAction: '执行编辑器 action',
+  openEditorPanel: '打开配置面板', openObjectPanel: '打开对象面板',
   listObjects: '列出场景对象', getSpatialContext: '读取空间上下文', getDetail: '读取对象详情',
-  getGridInfo: '读取网格', placeOnGround: '贴地放置', setProps: '修改属性',
+  getGridInfo: '读取网格', placeOnGround: '贴地放置', setProps: '修改属性', setObjectParams: '修改组件参数',
   addMesh: '添加几何体', addModel: '加载模型', addComponent: '添加组件',
+  createMesh: '创建原生 Mesh', createBufferMesh: '自定义顶点网格', createInstancedMesh: '实例化网格',
+  createLatheMesh: '旋转体', addTubeMesh: '管道网格', updateMeshGeometry: '几何后处理', addMeshWireframe: '线框',
+  addNativeLight: '原生灯光', addSprite: 'Sprite 标签', createGroup: '创建 Group', reparentObject: '调整层级',
+  cloneObject: '克隆对象', lookAt: '设置朝向', setMaterial: '设置材质',
+  replaceGeometry: '替换几何体', addLine: '添加线条', addPoints: '添加点云',
+  setSceneProps: '设置场景属性', applyTexture: '加载贴图', setLightProps: '设置灯光',
+  setEditorMode: '切换编辑模式', undoEditor: '撤销', redoEditor: '重做',
+  saveEditorScene: '保存场景', captureScreenshot: '截图', exportSceneJson: '导出 JSON', exportSceneGlb: '导出 GLB',
   getEditorSettings: '读取编辑器配置', setEditorSettings: '修改编辑器配置',
-  playAnimation: '播放动画', listAnimations: '列出动画',
+  playAnimation: '播放动画', listAnimations: '列出动画', loadScene: '加载案例场景',
 }
 
 export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, model, { onText, onStatus, signal } = {}) {
@@ -179,7 +189,7 @@ export async function chatWithSceneAi(userMessage, history, baseURL, apiKey, mod
     system: SCENE_SYSTEM,
     messages: [...messages, { role: 'user', content: userMessage }],
     tools: createSceneTools(editor),
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(14),
     abortSignal: signal,
   })
 
@@ -234,5 +244,9 @@ export function mountSceneAI(threeEditor) {
   window.sceneAI = {
     list: () => listObjects(threeEditor),
     getSettings: () => getEditorSettings(threeEditor),
+    getApi: () => getEditorApi(threeEditor),
+    listActions: () => listEditorActions(),
+    run: (action, params) => runEditorAction(threeEditor, { action, params: params || {} }),
+    openPanel: (panel) => openEditorPanel(threeEditor, typeof panel === 'string' ? { panel } : panel || {}),
   }
 }
