@@ -15,16 +15,22 @@ export const MAX_STEPS = 12
 export const TOOL_STATUS = {
   inspectScene: '看场景', listResources: '查资源', getObject: '读对象', editObject: '改对象',
   addMesh: '加几何', addComponent: '加组件', addModel: '加模型', addLight: '加灯光',
-  deleteObject: '删除', placeOnGround: '贴地', setEnvironment: '设氛围', focusCamera: '运镜',
+  deleteObject: '删除', placeOnGround: '贴地', setEnvironment: '设氛围', enableShadows: '开阴影',
   playAnimation: '播动画', history: '撤销/重做', buildScene: '搭建场景', runAdvanced: '高级操作',
 }
 export const CURATED = new Set([
   'inspectScene', 'listResources', 'getObject', 'editObject',
   'addMesh', 'addComponent', 'addModel', 'addLight',
-  'deleteObject', 'placeOnGround', 'setEnvironment', 'focusCamera',
+  'deleteObject', 'placeOnGround', 'setEnvironment', 'enableShadows', 'focusCamera',
   'playAnimation', 'history', 'buildScene', 'runAdvanced',
 ])
 export const ADVANCED_HINT = 'createMesh,runEditorAction,openEditorPanel,setMaterial,exportSceneGlb,...'
+
+/** 阴影四要素（缺一无效） */
+export const SHADOW_GUIDE = '① renderer.shadowMap ② 平行光 castShadow ③ mesh castShadow ④ 地面 receiveShadow；只用 enableShadows，不要用 setEnvironment 开阴影'
+
+/** 搭建原则 */
+export const SCENE_COMPOSE_GUIDE = '少而精：主体1+装饰0~2；每添加后 focusCamera 飞到新物体；禁止无脑堆元素；相机距离约为主体尺寸3~8倍'
 
 // 路径
 export const assetPrefix = __isProduction__ ? '/threejs-editor-beta/' : '/'
@@ -159,6 +165,25 @@ export const COMPONENT_HINTS = {
 export const MESH_INSTEAD = {
   锥子: '圆锥', 围墙: '多个立方体/平面组合', 球体文字: '球体+需文字时用 runAdvanced',
 }
+
+/** 技术美术编辑准则（改前必读 getObject） */
+export const SPATIAL_EDIT_GUIDE = 'position 是轴心非底面；改前先读 bounds.bottomY/size；贴地 placeOnGround；平面地面 scale 保持 [S,S,1]'
+export const COLOR_EDIT_GUIDE = '改色先看场景 background/fog 与 listResources.palettes 色板，同场景不超过3主色；组件色在 params/uniforms 不在 color'
+export const SHADER_EDIT_GUIDE = 'shader/组件：只改 getObject.custom 里已有的 params/uniforms key，一次改一类；禁止盲改 position/color/metalness'
+export const EDIT_WORKFLOW = 'editObject 前必须 getObject(id) → 按 editHints 改对应字段 → 改完 focusCamera 确认'
+
+/** 每轮问答的大师思维（先思考再动手） */
+export const MASTER_THINKING = `每轮回答前按此顺序思考（回复里用一两句体现，不要空喊口号）：
+① 听懂：用户真正想看到/感受到什么？（不是字面堆对象）
+② 看见：结合下方场景快照——现在有什么、选中谁、相机能不能看清
+③ 选法：用最少步骤、最对的 Three.js 手段（mesh/组件/灯光/环境/shader 参数）
+④ 负责：改完用户视口能立刻感到变化吗？需要 focusCamera 吗？阴影/色彩/比例协调吗？
+⑤ 说清楚：按 REPLY_FORMAT 回复；不确定先问，绝不瞎改`
+
+/** 每轮回复格式（用户读视口，不读代码） */
+export const REPLY_FORMAT = `【理解】一句话：用户要什么效果
+【做法】用什么手段、为什么（1-2句，再调工具）
+【结果】做完后视口里能看到什么（工具执行后补全；若未做操作则说明原因）`
 
 // 几何/向量工具
 export const r = (n) => +n.toFixed(2)

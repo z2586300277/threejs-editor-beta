@@ -64,13 +64,13 @@
         <div v-if="!messages.length" class="ai-empty">
           <div class="ai-empty-icon"><el-icon><ChatDotRound /></el-icon></div>
           <p class="ai-empty-title">想做什么场景？</p>
-          <p class="ai-empty-desc">随便说：「搭一个黄昏小场景」「把选中的改成红色」「加个网格地面」</p>
+          <p class="ai-empty-desc">随便说：「搭一个漂亮小场景」「把选中的改成红色」「加个网格地面」</p>
         </div>
         <BubbleList v-else :list="messages" :max-height="Math.max(120, box.h - (showConfig ? 240 : 130)) + 'px'" />
       </div>
 
       <div class="ai-chat-footer">
-        <XSender ref="senderRef" placeholder="描述你想调整的内容…" :loading="loading" @submit="send" @cancel="stop" />
+        <XSender ref="senderRef" placeholder="说说你想要的效果，我会像 Three.js 大师一样帮你实现…" :loading="loading" @submit="send" @cancel="stop" />
       </div>
 
       <div
@@ -85,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ChatDotRound, Close, Plus, Setting, Clock, Delete } from '@element-plus/icons-vue'
 import { BubbleList, XSender } from 'vue-element-plus-x'
@@ -241,6 +241,37 @@ function stop() {
   abortCtrl?.abort()
   loading.value = false
 }
+
+/** 面板内 Ctrl+C 只做文本复制，不触发编辑器 clone（编辑器只跳过 INPUT） */
+function inAiPanel(el) {
+  if (!el?.closest) return false
+  return !!(el.closest('.ai-chat-box') || el.closest('.ai-history-dropdown'))
+}
+
+function isAiPanelKeyEvent(e) {
+  if (!open.value) return false
+  if (inAiPanel(e.target) || inAiPanel(document.activeElement)) return true
+  for (const n of e.composedPath?.() ?? []) {
+    if (n instanceof Element && inAiPanel(n)) return true
+  }
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed) return false
+  const toEl = (n) => (n?.nodeType === 3 ? n.parentElement : n)
+  return inAiPanel(toEl(sel.anchorNode)) || inAiPanel(toEl(sel.focusNode))
+}
+
+function blockEditorHotkeys(e) {
+  if (e.type !== 'keydown' || !isAiPanelKeyEvent(e)) return
+  const tag = e.target?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  if (!(e.ctrlKey || e.metaKey)) return
+  const k = e.key?.toLowerCase()
+  if (k !== 'c' && k !== 'v' && k !== 'x') return
+  e.stopImmediatePropagation()
+}
+
+onMounted(() => document.addEventListener('keydown', blockEditorHotkeys, true))
+onUnmounted(() => document.removeEventListener('keydown', blockEditorHotkeys, true))
 </script>
 
 <style scoped>

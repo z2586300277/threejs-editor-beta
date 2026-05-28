@@ -8,36 +8,43 @@ import {
 import {
   getLiveContext, buildScene, inspectScene, listResources, listObjects,
   getEditorSettings, getEditorApi, openEditorPanel, runEditorAction, listEditorActions,
-  allSceneTools, mk, vec3, vec3req,
+  allSceneTools, enableSceneShadows, validateEditInput, focusScene, mk, vec3, vec3req,
 } from './core.js'
+import {
+  SHADOW_GUIDE, SCENE_COMPOSE_GUIDE, MASTER_THINKING, REPLY_FORMAT,
+  SPATIAL_EDIT_GUIDE, COLOR_EDIT_GUIDE, SHADER_EDIT_GUIDE, EDIT_WORKFLOW,
+} from './config.js'
 
 export function buildSystemPrompt(live) {
-  const parts = []
+  const scene = []
   if (live?.ready) {
-    parts.push(`场景 ${live.count} 个对象，地面 Y=${live.groundY}`)
-    if (live.selected) parts.push(`当前选中 #${live.selected.id} ${live.selected.name}(${live.selected.role})`)
-    if (live.roles) parts.push(`构成 ${fmtRoles(live.roles)}`)
-    if (live.snapshot?.length) parts.push(`对象：${live.snapshot.join('；')}`)
-  } else parts.push('编辑器就绪，场景为空或未加载')
-  const ctx = parts.join('。')
-  return `你是 Three.js 编辑器场景助理（技术美术视角）。${ctx}
+    scene.push(`【当前场景】${live.count} 个对象，地面 Y=${live.groundY}`)
+    if (live.shadowsOn === false) scene.push('阴影关')
+    if (live.colors?.background) scene.push(`背景 ${live.colors.background}${live.colors.fog ? ` 雾 ${live.colors.fog}` : ''}`)
+    if (live.selected) scene.push(`选中 ${live.selected.line}`)
+    if (live.snapshot?.length) scene.push(`布局 ${live.snapshot.join(' | ')}`)
+    if (live.hints?.length) scene.push(`提示 ${live.hints.join('；')}`)
+  } else scene.push('【当前场景】空或未加载')
 
-按任务直接调工具，不要无意义地 inspectScene → listResources 全查一遍：
-· 漂亮/随机场景 → buildScene，再 editObject 微调
-· 改物体 → 有选中用其 id；否则 inspectScene 找 id → editObject（组件改 params/uniforms，几何改 color/position/scale）
-· 添加几何/方块/球/柱/地面 → addMesh（见 meshUsage），不要用组件代替
-· 添加特效/图表/UI/组件 → 三步：① listResources({ label }) 了解 looksLike/defaults → ② addComponent 添加尝试 → ③ editObject 微调或 deleteObject
-· 不确定用哪个组件 → listResources({ query }) 搜索，再对选定 label 执行①
-· 氛围 → setEnvironment；运镜 → focusCamera
-· 原生 API / GUI / 导出 → runAdvanced（tool 名见 listResources.advancedTools）
+  return `你是用户的 Three.js 大师搭档——精通场景、材质、灯光、shader、构图。用户只看视口不看代码，你要站在他们的角度把事做好。
 
-回复习惯：先说打算做什么 → 调工具 → 收尾说明改了什么（含 id/名称）。不要只回「好了」。
+${MASTER_THINKING}
 
-约束：Y 向上，新物体默认贴地；不碰相机/GridHelper；不 loadScene、不清缓存，除非用户明确要求。`
-}
+回复格式：
+${REPLY_FORMAT}
 
-function fmtRoles(roles) {
-  return Object.entries(roles).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(' ')
+${scene.join('。')}
+
+执行备忘（思考后再选用）：
+· 改物体：${EDIT_WORKFLOW}｜空间 ${SPATIAL_EDIT_GUIDE}｜色彩 ${COLOR_EDIT_GUIDE}｜Shader ${SHADER_EDIT_GUIDE}
+· 搭场景：buildScene（${SCENE_COMPOSE_GUIDE}）优于自己乱加；阴影 ${SHADOW_GUIDE}
+· 加组件：listResources({ label }) 了解 → addComponent → editObject；加几何用 addMesh
+· 每次添加/大改后 focusCamera（无 objectId 则框选全场景），确保用户看得见
+· 氛围：仅用户明确要求天空/背景/雾时才 setEnvironment；只说「投影/阴影」时用 enableShadows，禁止顺带改背景
+
+禁忌：盲改 position/color；堆一堆元素；相机很远用户看不清；把 shader 组件当普通 mesh 改色；用户没提背景却 setEnvironment/setSky/setEnv。
+
+硬约束：Y 轴向上；不碰相机/GridHelper；不 loadScene/清缓存，除非用户明确要求。`
 }
 
 /** @deprecated 用 buildSystemPrompt(getLiveContext(editor)) */
@@ -47,14 +54,14 @@ export const SCENE_SYSTEM = buildSystemPrompt({ ready: true, count: 0, groundY: 
 export function createSceneTools(editor) {
   const all = allSceneTools(editor)
   return {
-    inspectScene: mk('查看场景：对象(含 role)、地面高度。不确定有什么时才用', z.object({ id: z.number().optional(), name: z.string().optional() }), (input) => inspectScene(editor, { ...input, includeObjects: true })),
+    inspectScene: mk('大师先看场景：spatial/groundY/bounds/布局。改东西或不确定有什么时用', z.object({ id: z.number().optional(), name: z.string().optional() }), (input) => inspectScene(editor, { ...input, includeObjects: true })),
     listResources: mk('查资源/了解组件。label=查阅详情(解锁 addComponent)；query=搜索；无参=概览', z.object({
       label: z.string().optional().describe('精确组件名 — 查阅后可 addComponent'),
       query: z.string().optional().describe('模糊搜索，如 地面、粒子、图表'),
     }), (input) => listResources(editor, input || {})),
-    getObject: mk('读取对象详情（含组件 params/uniforms）', z.object({ id: z.number(), children: z.boolean().optional() }), ({ id, children }) => all.getDetail.execute({ id, children })),
+    getObject: mk('大师改前必读：bounds/custom/editHints/material——看清再动手', z.object({ id: z.number(), children: z.boolean().optional() }), ({ id, children }) => all.getDetail.execute({ id, children })),
 
-    editObject: mk("改对象：位置/旋转/缩放/颜色/组件 params/uniforms", z.object({
+    editObject: mk("精准修改：先 getObject；组件 params/uniforms，mesh color/material；改完应 focusCamera", z.object({
         id: z.number(),
         name: z.string().optional(),
         visible: z.boolean().optional(),
@@ -79,6 +86,8 @@ export function createSceneTools(editor) {
           )
           .optional(),
       }), async (input) => {
+        const bad = validateEditInput(editor, input)
+        if (bad) return bad
         const {
           id,
           params,
@@ -109,7 +118,16 @@ export function createSceneTools(editor) {
         if (Object.keys(rest).some((k) => k !== "id" && rest[k] != null)) {
           last = await all.setProps.execute({ id, ...rest });
         }
-        return last || { error: "没有可应用的修改" };
+        const out = last || { error: "没有可应用的修改" };
+        if (!out.error) {
+          const visual = params || uniforms || rest.position || rest.rotation || rest.scale
+            || input.color != null || input.opacity != null || input.metalness != null
+          if (visual) {
+            const fc = await all.focusObject.execute({ id: input.id });
+            if (fc?.focused != null) out.focused = true;
+          }
+        }
+        return out;
       }),
 
     addMesh: all.addMesh,
@@ -119,7 +137,7 @@ export function createSceneTools(editor) {
     deleteObject: all.deleteObject,
     placeOnGround: all.placeOnGround,
 
-    setEnvironment: mk("天空盒/环境贴图/背景色/雾", z.object({
+    setEnvironment: mk("仅 sky/env/background/fog。用户明确要求换天空/背景/雾才用；开阴影用 enableShadows", z.object({
         sky: z.string().optional(),
         env: z.string().optional(),
         background: z.string().nullable().optional(),
@@ -146,7 +164,12 @@ export function createSceneTools(editor) {
           : { error: "请指定 sky/env/background/fog" };
       }),
 
-    focusCamera: mk("相机飞到 objectId 或 position+target", z.object({
+    enableShadows: mk('仅开阴影四要素，不改天空/背景/雾。用户要投影/阴影时用', z.object({
+      castIds: z.array(z.number()).optional().describe('投射阴影的物体 id'),
+      receiveIds: z.array(z.number()).optional().describe('接收阴影的地面 id'),
+    }), (input) => enableSceneShadows(editor, input || {})),
+
+    focusCamera: mk("对准物体或整个场景。objectId=单个物体；不传则框选全部物体", z.object({
         objectId: z.number().optional(),
         position: vec3req.optional(),
         target: vec3req.optional(),
@@ -154,7 +177,7 @@ export function createSceneTools(editor) {
         if (objectId != null) return all.focusObject.execute({ id: objectId });
         if (position && target)
           return all.focusView.execute({ position, target });
-        return { error: "需要 objectId 或 position+target" };
+        return focusScene(editor);
       }),
 
     playAnimation: all.playAnimation,
@@ -164,7 +187,7 @@ export function createSceneTools(editor) {
           ? all.undoEditor.execute({})
           : all.redoEditor.execute({})),
 
-    buildScene: mk("一键搭建审美统一的示例场景。用户要漂亮/随机场景时首选", z.object({
+    buildScene: mk("用户要好看/示例场景时用。大师式精简构图+阴影+对准主体，不堆元素", z.object({
         palette: z
           .string()
           .optional()

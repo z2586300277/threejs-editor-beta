@@ -16,7 +16,10 @@ import {
   EDITOR_SETTING_KEYS, EFFECT_PASS_KEYS, RENDER_WAYS, OUTPUT_COLOR_SPACES, RENDER_LIST_NAMES,
   BASIC_PANELS, OBJECT_PANELS, LIGHT_TYPES, NATIVE_LIGHT_TYPES, NATIVE_TOOL_NAMES, MESH_TYPES,
   MESH_USAGE, SKIES, MATERIAL_TYPES, GEOMETRY_TYPES, TEXTURE_MAPS, SIDE_MAP, COLOR_PALETTES,
-  ELEMENT_CATEGORIES, OBJECT_TYPES_GUIDE, COMPONENT_HINTS, MESH_INSTEAD, r, v3, _v, _e, _box,
+  ELEMENT_CATEGORIES, OBJECT_TYPES_GUIDE, COMPONENT_HINTS, MESH_INSTEAD,
+  SHADOW_GUIDE, SCENE_COMPOSE_GUIDE,
+  SPATIAL_EDIT_GUIDE, COLOR_EDIT_GUIDE, SHADER_EDIT_GUIDE, EDIT_WORKFLOW,
+  r, v3, _v, _e, _box,
 } from './config.js'
 
 
@@ -492,15 +495,7 @@ function loadOnlineModel(editor, { url, position, flyTo }) {
           const pos = safeVec3(position)
           if (pos) model.position.set(...pos)
           attachObject(editor, model)
-          if (flyTo && editor.camera && editor.controls) {
-            const views = getObjectViews(model, editor.camera)
-            if (views?.maxView && views?.target) {
-              await Promise.all([
-                createGsapAnimation(editor.camera.position, views.maxView, { duration: 0.5 }),
-                createGsapAnimation(editor.controls.target, views.target, { duration: 0.5 }),
-              ])
-            }
-          }
+          if (flyTo) await flyToObject(editor, model, 0.5)
           resolve({ object: { id: model.id, name: model.name || '(模型)' }, url, attached: true })
         } catch (e) {
           resolve({ error: `模型加载后处理失败: ${e?.message || String(e)}` })
@@ -974,6 +969,90 @@ function brief(o) {
   return b
 }
 
+function buildEditHints(o) {
+  const cls = classifySceneObject(o)
+  const hints = []
+  const b = getBounds(o)
+  if (b) {
+    hints.push(`空间: bottomY=${r(b.min[1])} topY=${r(b.max[1])} size=${b.size.map(r).join('×')}`)
+    hints.push('贴地/对齐: placeOnGround(id) 或读 inspectScene.spatial')
+  }
+  if (cls.role === 'component') {
+    const custom = readCustomProps(o)
+    const pKeys = Object.keys(custom.params || {})
+    const uKeys = Object.keys(custom.uniforms || {})
+    hints.push('组件/shader: 改 params/uniforms，勿用 color/metalness')
+    if (pKeys.length) hints.push(`params 可改: ${pKeys.slice(0, 6).join(', ')}`)
+    if (uKeys.length) hints.push(`uniforms 可改: ${uKeys.slice(0, 6).join(', ')}`)
+  } else if (cls.role === 'mesh') {
+    hints.push('基础 mesh: color/metalness/roughness/emissive；位置 position/placeOnGround')
+  } else if (cls.role === 'light') {
+    hints.push('灯光: intensity/color/castShadow；位置影响阴影方向')
+  } else if (cls.role === 'floor') {
+    hints.push('地面: receiveShadow + scale 正方形；shader 地面改 params/uniforms')
+  }
+  return hints
+}
+
+function getSceneColorContext(editor) {
+  const s = editor?.scene
+  if (!s) return {}
+  const out = { palettes: COLOR_PALETTES.map(p => p.name) }
+  if (s.background?.isColor) out.background = `#${s.background.getHexString()}`
+  if (s.fog?.color) out.fog = `#${s.fog.color.getHexString()}`
+  return out
+}
+
+function snapshotLine(o) {
+  const cls = classifySceneObject(o)
+  const b = getBounds(o)
+  let col = ''
+  o.traverse?.(c => {
+    if (!col && c.isMesh?.material?.color) col = `#${c.material.color.getHexString()}`
+  })
+  const parts = [`#${o.id} ${o.name || '?'}(${cls.role})`, `@${v3(o.position).join(',')}`]
+  if (b) parts.push(`sz${b.size.map(x => r(x)).join('×')}`)
+  if (col) parts.push(col)
+  return parts.join(' ')
+}
+
+/** editObject 前校验，拦截常见盲改 */
+export function validateEditInput(editor, input) {
+  const o = find(editor?.scene, input?.id)
+  if (!o) return { error: `未找到 id=${input?.id}` }
+  const role = classifySceneObject(o).role
+  const hasParams = input.params || input.uniforms
+  const hasMat = input.color != null || input.metalness != null || input.roughness != null || input.emissive != null || input.opacity != null
+
+  if (role === 'component' || role === 'floor') {
+    if (hasMat && !hasParams) {
+      const custom = readCustomProps(o)
+      const pColor = Object.keys(custom.params || {}).filter(k => /color/i.test(k))
+      const uColor = Object.keys(custom.uniforms || {}).filter(k => /color/i.test(k))
+      if (pColor.length || uColor.length || custom.uniforms || custom.params) {
+        return {
+          error: 'shader/组件不能用 editObject.color 或 metalness，请用 params/uniforms',
+          hint: '先 getObject 读 custom，只改已有 key',
+          suggest: {
+            ...(pColor.length ? { params: Object.fromEntries(pColor.map(k => [k, custom.params[k]])) } : {}),
+            ...(uColor.length ? { uniforms: Object.fromEntries(uColor.map(k => [k, custom.uniforms[k]])) } : {}),
+          },
+        }
+      }
+    }
+    if ((input.metalness != null || input.roughness != null) && !hasParams) {
+      return { error: '组件无 PBR 材质通道，用 params/uniforms 改外观', hint: 'getObject → editObject.params/uniforms' }
+    }
+  }
+  if (role === 'mesh' && hasParams && !o.designType) {
+    return { error: '基础 mesh 无 params，用 color/metalness/roughness', hint: 'editObject.color 或 getObject.material' }
+  }
+  if (role === 'light' && (input.metalness != null || input.roughness != null)) {
+    return { error: '灯光用 intensity/color/castShadow', hint: 'editObject.intensity/color' }
+  }
+  return null
+}
+
 function detail(o, opts = {}) {
   const d = {
     ...brief(o),
@@ -1008,6 +1087,7 @@ function detail(o, opts = {}) {
   if (opts.children && o.children?.length) {
     d.children = o.children.map(c => ({ id: c.id, name: c.name || '(未命名)', type: c.designType || c.type }))
   }
+  d.editHints = buildEditHints(o)
   return d
 }
 
@@ -1567,6 +1647,7 @@ function setProps(editor, { id, name, visible, position, rotation, scale, color,
   if (intensity != null && obj.isLight) obj.intensity = clampN(intensity, 0, MAX_INTENSITY)
   if (renderOrder != null) obj.renderOrder = clampN(renderOrder, -1000, 1000)
   if (castShadow != null || receiveShadow != null) {
+    if (castShadow != null && obj.isLight) obj.castShadow = !!castShadow
     obj.traverse?.(c => {
       if (!c.isMesh) return
       if (castShadow != null) c.castShadow = !!castShadow
@@ -1640,8 +1721,16 @@ function addLight(editor, type, position = [0, 5, 0]) {
   light.editorType = 'isLight'
   light.name = type
   light.position.set(...pos)
+  if (type === '平行光' || type === '聚光灯') {
+    light.castShadow = true
+    if (light.shadow?.mapSize) light.shadow.mapSize.set(2048, 2048)
+  }
   attachObject(editor, light)
-  return { object: detail(light) }
+  const out = { object: detail(light) }
+  if (type === '平行光' || type === '聚光灯') {
+    out.hint = '已开 castShadow；完整阴影用 enableShadows()，勿用 setEnvironment'
+  }
+  return out
 }
 
 function addNativeLight(editor, { type = 'DirectionalLight', position, color, intensity }) {
@@ -1809,26 +1898,143 @@ async function loadScene(editor, nameOrPath) {
   }
 }
 
-async function flyToObject(editor, obj, duration = 0.5) {
+function isFinitePos(v) {
+  return v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+}
+
+function boundsFrame(obj) {
+  const b = getBounds(obj)
+  if (!b) return null
+  const [cx, cy, cz] = b.center
+  const maxDim = Math.max(b.size[0], b.size[1], b.size[2], 0.01)
+  const dist = clampN(maxDim * 4, 2, 80)
+  return {
+    maxView: { x: cx + dist * 0.55, y: cy + dist * 0.35, z: cz + dist * 0.55 },
+    target: { x: cx, y: cy, z: cz },
+    source: 'bounds',
+  }
+}
+
+function resolveCameraFrame(editor, obj) {
+  if (!obj) return null
   try {
-    if (!editor.camera || !editor.controls) return
     const views = getObjectViews(obj, editor.camera)
-    const maxView = views?.maxView
-    const target = views?.target
-    if (maxView?.x == null || target?.x == null) return
+    if (isFinitePos(views?.maxView) && isFinitePos(views?.target)) {
+      return { maxView: views.maxView, target: views.target, source: 'getObjectViews' }
+    }
+  } catch { /* fallback */ }
+  return boundsFrame(obj)
+}
+
+function resolveSceneFrame(editor) {
+  const objs = collectObjects(editor, {}).filter(o => !o.isLight)
+  if (!objs.length) return null
+  _box.makeEmpty()
+  for (const o of objs) {
+    try { _box.expandByObject(o) } catch { /* skip */ }
+  }
+  if (_box.isEmpty()) return null
+  const c = _box.getCenter(_v)
+  const s = _box.getSize(new THREE.Vector3())
+  const maxDim = Math.max(s.x, s.y, s.z, 0.01)
+  const dist = clampN(maxDim * 2.2, 3, 100)
+  return {
+    maxView: { x: c.x + dist * 0.6, y: c.y + dist * 0.4, z: c.z + dist * 0.6 },
+    target: { x: c.x, y: c.y, z: c.z },
+    source: 'sceneBounds',
+  }
+}
+
+async function flyToObject(editor, obj, duration = 0.5) {
+  const frame = resolveCameraFrame(editor, obj)
+  if (!frame) return { error: '无法计算相机视角（物体无包围盒）' }
+  try {
+    if (!editor.camera || !editor.controls) return { error: '相机/轨道控制器未就绪' }
+    const d = clampN(duration, 0.1, 5)
     await Promise.all([
-      createGsapAnimation(editor.camera.position, maxView, { duration: clampN(duration, 0.1, 5) }),
-      createGsapAnimation(editor.controls.target, target, { duration: clampN(duration, 0.1, 5) }),
+      createGsapAnimation(editor.camera.position, frame.maxView, { duration: d }),
+      createGsapAnimation(editor.controls.target, frame.target, { duration: d }),
     ])
-  } catch { /* 飞行动画失败不影响场景 */ }
+    editor.controls.update?.()
+    return { focused: true, objectId: obj.id, source: frame.source, target: v3(_v.set(frame.target.x, frame.target.y, frame.target.z)) }
+  } catch (e) {
+    return { error: `运镜失败: ${e?.message || String(e)}` }
+  }
 }
 
 async function focusObject(editor, id, duration = 0.5) {
   const { obj, error } = findEditable(editor.scene, id)
   if (error) return { error }
-  editor.transformControls.attach(obj)
-  await flyToObject(editor, obj, duration)
-  return { id, name: obj.name || '(未命名)', focused: true }
+  const res = await flyToObject(editor, obj, duration)
+  if (res?.error) return res
+  return { focused: id, name: obj.name || '(未命名)', ...res }
+}
+
+/** 无指定物体时框选整个场景 */
+export async function focusScene(editor, duration = 0.5) {
+  const frame = resolveSceneFrame(editor)
+  if (!frame) return { error: '场景无可见物体，无法运镜' }
+  try {
+    if (!editor.camera || !editor.controls) return { error: '相机/轨道控制器未就绪' }
+    const d = clampN(duration, 0.1, 5)
+    await Promise.all([
+      createGsapAnimation(editor.camera.position, frame.maxView, { duration: d }),
+      createGsapAnimation(editor.controls.target, frame.target, { duration: d }),
+    ])
+    editor.controls.update?.()
+    return { focused: true, mode: 'scene', source: frame.source, target: v3(_v.set(frame.target.x, frame.target.y, frame.target.z)) }
+  } catch (e) {
+    return { error: `运镜失败: ${e?.message || String(e)}` }
+  }
+}
+
+/** 阴影四要素：渲染器 + 主光源 + cast/receive */
+export function enableSceneShadows(editor, { castIds = [], receiveIds = [] } = {}) {
+  const out = { steps: [] }
+  const r = editor?.renderer
+  if (!r) return { error: 'renderer 未就绪' }
+  if (r.shadowMap) {
+    r.shadowMap.enabled = true
+    out.steps.push('renderer.shadowMap.enabled')
+  }
+  let mainLight = null
+  editor.scene?.traverse(o => {
+    if (mainLight || !o.isLight) return
+    if (o.type === 'DirectionalLight' || o.type === 'SpotLight') mainLight = o
+  })
+  if (mainLight) {
+    mainLight.castShadow = true
+    if (mainLight.shadow?.mapSize) mainLight.shadow.mapSize.set(2048, 2048)
+    if (mainLight.type === 'DirectionalLight' && mainLight.shadow?.camera) {
+      const c = mainLight.shadow.camera
+      c.near = 0.5
+      c.far = 60
+      c.left = c.bottom = -30
+      c.right = c.top = 30
+      c.updateProjectionMatrix?.()
+    }
+    out.steps.push(`#${mainLight.id} ${mainLight.name || mainLight.type} castShadow`)
+  } else {
+    out.warn = '无平行光/聚光灯，addLight 平行光后再开阴影'
+  }
+  const apply = (ids, key) => {
+    for (const id of ids) {
+      const res = setProps(editor, { id, [key]: true })
+      if (!res.error) out.steps.push(`#${id} ${key}`)
+    }
+  }
+  apply(receiveIds, 'receiveShadow')
+  apply(castIds, 'castShadow')
+  if (!castIds.length && !receiveIds.length) {
+    for (const o of collectObjects(editor, {})) {
+      if (o.isLight || isProtected(o)) continue
+      if (isFloorLike(o)) setProps(editor, { id: o.id, receiveShadow: true })
+      else if (o.isMesh) setProps(editor, { id: o.id, castShadow: true })
+    }
+    out.steps.push('auto cast/receive')
+  }
+  out.ok = out.steps.length > 0
+  return out
 }
 
 async function focusView(editor, position, target, duration = 0.5) {
@@ -3222,7 +3428,7 @@ function buildElementCatalog(full = false) {
   const components = designs.map(d => {
     const meta = getComponentMeta(d)
     if (!byCategory[meta.category]) byCategory[meta.category] = { label: meta.categoryLabel, items: [] }
-    byCategory[meta.category].items.push(full ? meta : { label: meta.label, looksLike: meta.looksLike.slice(0, 56) })
+    byCategory[meta.category].items.push(full ? meta : meta.label)
     return full ? meta : meta.label
   })
   const base = {
@@ -3253,8 +3459,10 @@ export function listResources(editor, { label, query } = {}) {
     tips: {
       component: '流程：listResources({ label }) → addComponent → editObject；简单几何用 addMesh',
       mesh: 'addMesh + editObject；立方体/球/柱/平面见 meshUsage',
-      scene: 'buildScene 一键搭建',
+      scene: 'buildScene 一键搭建（含阴影+运镜）',
+      shadows: SHADOW_GUIDE,
       search: 'listResources({ query }) 搜组件，再 listResources({ label }) 查详情后才可 addComponent',
+      edit: EDIT_WORKFLOW,
       advanced: 'runAdvanced({ tool, input })',
     },
   }
@@ -3267,13 +3475,19 @@ export function getLiveContext(editor) {
   const ground = detectGroundSurface(editor)
   const sel = editor.transformControls?.object
   const selected = sel && !isProtected(sel)
-    ? { id: sel.id, name: sel.name || '(未命名)', role: classifySceneObject(sel).role }
+    ? { id: sel.id, name: sel.name || '(未命名)', role: classifySceneObject(sel).role, line: snapshotLine(sel) }
     : null
-  const snapshot = raw.slice(0, 10).map(o => {
-    const c = classifySceneObject(o)
-    return `#${o.id} ${o.name || '(未命名)'}(${c.role})`
-  })
-  return { ready: true, count: summary.total, groundY: ground.y, roles: summary.byRole, selected, snapshot }
+  const snapshot = raw.slice(0, 8).map(snapshotLine)
+  const shadowsOn = !!editor.renderer?.shadowMap?.enabled
+  const colors = getSceneColorContext(editor)
+  const cam = editor.camera?.position
+  const cameraAt = cam ? v3(cam) : null
+  const hints = []
+  if (!shadowsOn && summary.total >= 2) hints.push('要阴影用 enableShadows()，勿用 setEnvironment')
+  if (summary.total > 12) hints.push('对象偏多，优先微调现有物体')
+  if ((summary.byRole?.component || 0) > 4) hints.push('组件多，改外观用 params/uniforms')
+  if (summary.total > 0) hints.push('看不清时 focusCamera() 框选全场景')
+  return { ready: true, count: summary.total, groundY: ground.y, roles: summary.byRole, selected, snapshot, shadowsOn, colors, cameraAt, hints }
 }
 
 export async function buildScene(editor, { palette: paletteName } = {}) {
@@ -3281,39 +3495,48 @@ export async function buildScene(editor, { palette: paletteName } = {}) {
     || COLOR_PALETTES[Math.floor(Math.random() * COLOR_PALETTES.length)]
   const created = []
 
-  const ground = await addMesh(editor, '平面', [0, 0, 0], palette.ground, '地面', false, { size: 50, onGround: true, flat: true })
+  const ground = await addMesh(editor, '平面', [0, 0, 0], palette.ground, '地面', false, { size: 30, onGround: true, flat: true })
   if (ground.error) return ground
-  created.push({ role: 'ground', id: ground.object?.id })
+  const groundId = ground.object?.id
+  if (groundId) created.push({ role: 'ground', id: groundId })
 
-  setSceneProps(editor, { background: palette.background, fog: { color: palette.fog, near: 8, far: 60 } })
+  setSceneProps(editor, { background: palette.background, fog: { color: palette.fog, near: 10, far: 45 } })
 
-  const amb = addLight(editor, '环境光', [0, 3, 0])
-  if (amb.object?.id) setProps(editor, { id: amb.object.id, intensity: 0.35 })
-  const key = addLight(editor, '平行光', [5, 8, 5])
-  if (key.object?.id) setProps(editor, { id: key.object.id, intensity: 1, castShadow: true })
-  const fill = addLight(editor, '点光源', [-3, 4, 3])
-  if (fill.object?.id) setProps(editor, { id: fill.object.id, intensity: 0.5, color: palette.accent })
+  addLight(editor, '环境光', [0, 3, 0])
+  const key = addLight(editor, '平行光', [6, 10, 4])
+  if (key.object?.id) setProps(editor, { id: key.object.id, intensity: 1.1 })
 
   const hero = await addMesh(editor, '球体', [0, 0, 0], palette.primary, '主体', false, { onGround: true })
-  if (hero.object?.id) {
-    setProps(editor, { id: hero.object.id, scale: [1, 1, 1] })
-    created.push({ role: 'hero', id: hero.object.id })
+  const heroId = hero.object?.id
+  if (heroId) {
+    setProps(editor, { id: heroId, scale: [1.2, 1.2, 1.2], castShadow: true })
+    created.push({ role: 'hero', id: heroId })
   }
 
-  for (const p of [
-    { type: '二十面体', pos: [3, 0, 0], color: palette.secondary, scale: 0.55 },
-    { type: '圆环', pos: [-2.5, 0, 2], color: palette.accent, scale: 0.7 },
-    { type: '圆柱', pos: [0, 0, -3.5], color: palette.secondary, scale: [0.4, 0.8, 0.4] },
-  ]) {
-    const m = await addMesh(editor, p.type, p.pos, p.color, p.type, false, { onGround: true })
-    if (m.object?.id) {
-      setProps(editor, { id: m.object.id, scale: p.scale })
-      created.push({ role: 'prop', id: m.object.id, type: p.type })
-    }
+  const prop = await addMesh(editor, '二十面体', [2.5, 0, 1.5], palette.secondary, '装饰', false, { onGround: true })
+  const propId = prop.object?.id
+  if (propId) {
+    setProps(editor, { id: propId, scale: [0.5, 0.5, 0.5], castShadow: true })
+    created.push({ role: 'prop', id: propId })
   }
 
-  await focusView(editor, [8, 6, 8], [0, 1, 0], 0.8)
-  return { palette: palette.name, created, message: '已搭建地面、雾效、三连灯与主体装饰，可按需微调' }
+  const shadows = enableSceneShadows(editor, {
+    receiveIds: groundId ? [groundId] : [],
+    castIds: [heroId, propId].filter(Boolean),
+  })
+
+  if (heroId) {
+    await focusObject(editor, heroId, 0.7)
+  } else {
+    await focusScene(editor, 0.7)
+  }
+
+  return {
+    palette: palette.name,
+    created,
+    shadows,
+    message: '已搭建：地面+主光+主体+1装饰，阴影已开，相机已对准主体',
+  }
 }
 
 export function inspectScene(editor, { id, name, type, designType, deep, includeObjects = true } = {}) {
@@ -3547,10 +3770,10 @@ function createAllSceneTools(editor) {
       }), (input) => setProps(editor, input)),
     selectObject: mk('选中对象，不移动相机', z.object({ id: z.number() }), ({ id }) => selectObject(editor, id)),
     deleteObject: mk('从场景删除对象并 dispose 几何/材质/纹理', z.object({ id: z.number() }), ({ id }) => deleteObject(editor, id)),
-    addModel: mk('加载 GLB/FBX 模型。默认贴地(onGround)且不自飞(flyTo)。可设 initPlay/index 自动播放动画', z.object({
+    addModel: mk('加载 GLB/FBX 模型。默认贴地且 flyTo 飞到模型', z.object({
         urlOrName: z.string().describe('模型 URL 或文件名，来自 listResources'),
         position: vec3.describe('位置，默认 [0,0,0]'),
-        flyTo: z.boolean().optional().describe('加载后飞过去，默认 false'),
+        flyTo: z.boolean().optional().describe('加载后飞过去，默认 true'),
         onGround: z.boolean().optional().describe('加载后自动贴地，默认 true'),
         initPlay: z.boolean().optional().describe('初始加载播放，需配合 index/indices'),
         index: z.number().int().min(0).optional().describe('加载后播放的动画索引'),
@@ -3558,17 +3781,17 @@ function createAllSceneTools(editor) {
         loop: z.boolean().optional().describe('是否循环，默认 true'),
         speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
       }), ({ urlOrName, position, flyTo, onGround, initPlay, index, indices, loop, speed }) =>
-        addModel(editor, urlOrName, position ?? [0, 0, 0], !!flyTo, { initPlay, index, indices, loop, speed }, onGround !== false)),
-    addComponent: mk('添加组件到场景尝试。须先 listResources({ label }) 查阅；添加后 editObject 微调', z.object({
+        addModel(editor, urlOrName, position ?? [0, 0, 0], flyTo !== false, { initPlay, index, indices, loop, speed }, onGround !== false)),
+    addComponent: mk('添加组件。须先 listResources({ label })；默认 flyTo 飞到组件', z.object({
         label: z.string().describe('已查阅过的组件 label'),
         position: vec3req,
-        flyTo: z.boolean().optional(),
+        flyTo: z.boolean().optional().describe('添加后飞过去，默认 true'),
         onGround: z.boolean().optional().describe('自动贴地，地面类默认 true'),
-      }), ({ label, position, flyTo, onGround }) => addComponent(editor, label, position, !!flyTo, onGround)),
-    addLight: mk('添加灯光', z.object({
+      }), ({ label, position, flyTo, onGround }) => addComponent(editor, label, position, flyTo !== false, onGround)),
+    addLight: mk('添加灯光。平行光/聚光灯默认 castShadow；完整阴影用 enableShadows()', z.object({
         type: z.enum(LIGHT_TYPES), position: vec3.describe('默认 [0,5,0]'),
       }), ({ type, position }) => addLight(editor, type, position ?? [0, 5, 0])),
-    addMesh: mk('添加基础几何体。地面: type=平面 + onGround + flat + size(默认跟网格)', z.object({
+    addMesh: mk('添加基础几何体。默认 flyTo 飞到新物体；地面: type=平面 + onGround + flat', z.object({
         type: z.enum(Object.keys(MESH_TYPES)).describe('几何体类型，来自 listResources'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         color: z.string().optional().describe('颜色，默认 #ffffff'),
@@ -3577,9 +3800,9 @@ function createAllSceneTools(editor) {
         rotation: vec3.optional().describe('欧拉角(度)，平面作地面常用 [-90,0,0]'),
         onGround: z.boolean().optional().describe('添加后自动贴地'),
         flat: z.boolean().optional().describe('PlaneGeometry 放平，等同 placeOnGround(flat:true)'),
-        flyTo: z.boolean().optional(),
+        flyTo: z.boolean().optional().describe('添加后飞过去，默认 true'),
       }), ({ type, position, color, name, size, rotation, onGround, flat, flyTo }) =>
-        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, !!flyTo, { size, rotation, onGround, flat })),
+        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, flyTo !== false, { size, rotation, onGround, flat })),
     addMeshes: mk('批量添加几何体，适合网格交点批量放置（最多 50 个）', z.object({
         items: z.array(z.object({
           type: z.enum(Object.keys(MESH_TYPES)),
