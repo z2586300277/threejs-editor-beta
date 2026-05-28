@@ -63,8 +63,8 @@
       <div class="ai-chat-body">
         <div v-if="!messages.length" class="ai-empty">
           <div class="ai-empty-icon"><el-icon><ChatDotRound /></el-icon></div>
-          <p class="ai-empty-title">想调整什么场景？</p>
-          <p class="ai-empty-desc">例如：列出场景对象、把立方体移到 (0,2,0)、改成红色</p>
+          <p class="ai-empty-title">想做什么场景？</p>
+          <p class="ai-empty-desc">随便说：「搭一个黄昏小场景」「把选中的改成红色」「加个网格地面」</p>
         </div>
         <BubbleList v-else :list="messages" :max-height="Math.max(120, box.h - (showConfig ? 240 : 130)) + 'px'" />
       </div>
@@ -221,7 +221,7 @@ async function send() {
   try {
     await chatWithSceneAi(text, history, baseURL.value, apiKey.value, model.value, {
       signal,
-      onStatus: content => patch({ content, loading: true }),
+      onStatus: () => patch({ loading: true }),
       onText: content => patch({ content, loading: false }),
     })
   } catch (e) {

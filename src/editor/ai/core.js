@@ -2,95 +2,775 @@ import { tool } from 'ai'
 import { z } from 'zod/v4'
 import * as THREE from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { ThreeEditor, CORES_LIST, getObjectViews, createGsapAnimation, restoreHistoryHandler, getObjectBox3, getMaterials, createSpriteText } from '../lib'
-import { listEditorActions, runEditorAction, EDITOR_ACTIONS } from './editorActions'
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js'
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
+import { ThreeEditor, CORES_LIST, getObjectViews, createGsapAnimation, restoreHistoryHandler, getObjectBox3, getMaterials, createSpriteText, setGsapMeshAction } from '../lib'
+import {
+  CFG_KEY, LAYOUT_KEY, CHATS_KEY, DEFAULT_AI_CONFIG, MAX_HISTORY, MAX_STEPS, TOOL_STATUS,
+  CURATED, ADVANCED_HINT, animJsonPath, scenePath, PROTECTED, SKIP, MAX_POS, MIN_SCALE, MAX_SCALE,
+  MAX_INTENSITY, MAX_COUNT, MAX_INSTANCES, MAX_CURVE_POINTS, MAX_DRAW_POINTS, LIST_CAP, EXTRA_KEYS,
+  PARAM_LIMITS, OTHER_PANELS, LIGHT_ZH, HANDLER_MODES, TC_MODES, TRANSFORM_MODES, TC_SPACES,
+  EDITOR_SETTING_KEYS, EFFECT_PASS_KEYS, RENDER_WAYS, OUTPUT_COLOR_SPACES, RENDER_LIST_NAMES,
+  BASIC_PANELS, OBJECT_PANELS, LIGHT_TYPES, NATIVE_LIGHT_TYPES, NATIVE_TOOL_NAMES, MESH_TYPES,
+  MESH_USAGE, SKIES, MATERIAL_TYPES, GEOMETRY_TYPES, TEXTURE_MAPS, SIDE_MAP, COLOR_PALETTES,
+  ELEMENT_CATEGORIES, OBJECT_TYPES_GUIDE, COMPONENT_HINTS, MESH_INSTEAD, r, v3, _v, _e, _box,
+} from './config.js'
 
-export { listEditorActions, runEditorAction }
 
-const SKIP = new Set(['PerspectiveCamera', 'AxesHelper', 'GridHelper', 'Box3Helper'])
-const LIGHT_TYPES = ['环境光', '平行光', '点光源', '聚光灯', '半球光', '平面光']
-const NATIVE_LIGHT_TYPES = ['AmbientLight', 'DirectionalLight', 'PointLight', 'SpotLight', 'HemisphereLight', 'RectAreaLight']
-const MAX_INSTANCES = 2000
-const MAX_CURVE_POINTS = 256
-const NATIVE_TOOL_NAMES = [
-  'createMesh', 'createBufferMesh', 'createInstancedMesh', 'createLatheMesh', 'addTubeMesh',
-  'createGroup', 'reparentObject', 'cloneObject', 'lookAt',
-  'setMaterial', 'replaceGeometry', 'applyTexture', 'updateMeshGeometry', 'addMeshWireframe',
-  'addLine', 'addPoints', 'addSprite', 'addNativeLight', 'setLightProps', 'setSceneProps', 'setProps',
-]
-const MESH_TYPES = {
-  '立方体': () => new THREE.BoxGeometry(1, 1, 1),
-  '球体': () => new THREE.SphereGeometry(0.5, 32, 16),
-  '圆柱': () => new THREE.CylinderGeometry(0.5, 0.5, 1, 32),
-  '圆锥': () => new THREE.ConeGeometry(0.5, 1, 32),
-  '圆环': () => new THREE.TorusGeometry(0.5, 0.2, 16, 32),
-  '平面': () => new THREE.PlaneGeometry(1, 1),
-  '二十面体': () => new THREE.IcosahedronGeometry(0.5),
-  '八面体': () => new THREE.OctahedronGeometry(0.5),
-  '十二面体': () => new THREE.DodecahedronGeometry(0.5),
-  '圆扭结': () => new THREE.TorusKnotGeometry(0.4, 0.1, 64, 8),
-}
-const MESH_USAGE = {
-  '立方体': '建筑块、平台、箱体、台阶',
-  '球体': '装饰球、天体、节点、hero 主体',
-  '圆柱': '柱子、树干、塔身',
-  '圆锥': '屋顶、树形、标记锥',
-  '圆环': '光环、轨道、装饰环',
-  '平面': '地面/墙面/背景板（地面需 flat+onGround）',
-  '二十面体': '低多边形装饰、晶体',
-  '八面体': '宝石、钻石形装饰',
-  '十二面体': '骰子、几何装饰',
-  '圆扭结': '艺术装饰、复杂曲线主体',
-}
-const SKIES = [
-  { name: '蓝天', url: 'https://z2586300277.github.io/three-editor/dist/files/scene/skyBox0/' },
-  { name: '晴天', url: 'https://z2586300277.github.io/3d-file-server/files/sky/skyBox1/' },
-  { name: '森林', url: 'https://z2586300277.github.io/three-editor/dist/files/scene/skyBox8/' },
-  { name: '清除', url: '' },
-]
-const MATERIAL_TYPES = ['MeshBasicMaterial', 'MeshStandardMaterial', 'MeshPhongMaterial', 'MeshLambertMaterial', 'MeshNormalMaterial', 'MeshPhysicalMaterial', 'MeshToonMaterial', 'MeshDepthMaterial']
-const GEOMETRY_TYPES = ['BoxGeometry', 'SphereGeometry', 'PlaneGeometry', 'CylinderGeometry', 'ConeGeometry', 'TorusGeometry', 'TorusKnotGeometry', 'IcosahedronGeometry', 'OctahedronGeometry', 'DodecahedronGeometry', 'TetrahedronGeometry', 'CapsuleGeometry', 'RingGeometry', 'CircleGeometry', 'LatheGeometry', 'TubeGeometry']
-const TEXTURE_MAPS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']
-const SIDE_MAP = { FrontSide: THREE.FrontSide, BackSide: THREE.BackSide, DoubleSide: THREE.DoubleSide }
-const scenePath = (v) => (__isProduction__ ? '/threejs-editor-beta/' : '/') + v
-const r = (n) => +n.toFixed(2)
-const v3 = (v) => [r(v.x), r(v.y), r(v.z)]
-const _v = new THREE.Vector3()
-const _e = new THREE.Euler()
-const _box = new THREE.Box3()
-
-// ── 安全策略 ──
-const PROTECTED = new Set(['PerspectiveCamera', 'OrthographicCamera', 'AxesHelper', 'GridHelper', 'Box3Helper'])
-const MAX_POS = 1e5
-const MIN_SCALE = 0.001
-const MAX_SCALE = 1e3
-const MAX_INTENSITY = 100
-const MAX_COUNT = 5000
-const EXTRA_KEYS = new Set(['needsUpdate'])
-const LIST_CAP = 40
-const PARAM_LIMITS = {
-  count: [1, MAX_COUNT], elementSize: [0.01, 50], range: [1, 500], size: [0.1, 500],
-  radius: [0.01, 50], height: [0.01, 100], segments: [3, 128], speed: [0, 10],
-  speedVariation: [0, 5], opacity: [0, 1], randomInterval: [50, 10000],
-  gridThickness: [0, 0.1], crossThickness: [0, 0.1], cross: [0, 1], gridScale: [1, 200],
+function resolveClass(name, fallback) {
+  const Cls = THREE[name]
+  return typeof Cls === 'function' ? Cls : fallback
 }
 
+function attachObject(editor, obj) {
+  const scene = editor?.scene
+  if (!scene || !obj) return
+  if (obj.parent === scene) {
+    editor.transformControls?.attach?.(obj)
+    return
+  }
+  if (scene.attach_add) scene.attach_add(obj)
+  else {
+    scene.add(obj)
+    editor.transformControls?.attach?.(obj)
+  }
+}
+
+function getTransformInfo(mesh) {
+  return {
+    position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+    rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z },
+    scale: { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z },
+  }
+}
+
+function createCoreLight(type, { color = 0xffffff, intensity = 1 } = {}) {
+  switch (type) {
+    case 'AmbientLight': return new THREE.AmbientLight(color, intensity)
+    case 'DirectionalLight': return new THREE.DirectionalLight(color, intensity)
+    case 'PointLight': return new THREE.PointLight(color, intensity, 0, 0)
+    case 'SpotLight': return new THREE.SpotLight(color, intensity, 0, Math.PI / 3, 0, 0)
+    case 'HemisphereLight': return new THREE.HemisphereLight(color, 0x000000, intensity)
+    case 'RectAreaLight': return new THREE.RectAreaLight(color, intensity, 100, 100)
+    default: return null
+  }
+}
+
+function resolveLightType(editor, type) {
+  const lc = editor.lightCores
+  if (!type && lc?.type) return lc.type
+  if (lc?.list?.[type]) return lc.list[type]
+  if (LIGHT_ZH[type]) return LIGHT_ZH[type]
+  return type
+}
+
+function editorArgs(editor) {
+  return {
+    scene: editor.scene,
+    camera: editor.camera,
+    renderer: editor.renderer,
+    controls: editor.controls,
+    transformControls: editor.transformControls,
+    effectComposer: editor.effectComposer,
+    css3DRender: editor.css3DRender,
+    css2DRender: editor.css2DRender,
+    DOM: editor.DOM,
+  }
+}
+
+function editorCores(editor) {
+  const c = {}
+  for (const k of ['shaderCores', 'handler', 'other', 'modelCores', 'innerCores', 'drawCores', 'textCores', 'particleCores', 'designCores', 'lightCores', 'geoCores']) {
+    if (editor[k]) c[k] = editor[k]
+  }
+  return c
+}
+
+function loadSceneList() {
+  try {
+    return JSON.parse(localStorage.getItem('new_sceneList') || '[]')
+  } catch {
+    return []
+  }
+}
+
+function saveSceneList(list) {
+  localStorage.setItem('new_sceneList', JSON.stringify(list))
+}
+
+export const EDITOR_ACTIONS = {
+  openCorePanel: {
+    desc: '打开控制板「核心」子面板 GUI（文字物体/绘制物体/粒子物体/模型等）',
+    params: { panel: 'CORES_LIST.label 或 name，如 textCores / 文字物体' },
+  },
+  openOtherPanel: {
+    desc: '打开控制板「其他」子面板：编辑动画/视角动画/变换动画/裁剪场景',
+    params: { panel: '编辑动画|视角动画|变换动画|裁剪场景' },
+  },
+  addText3D: {
+    desc: '添加 3D 文字（等同核心→文字物体→添加）',
+    params: { text: 'string', fontLink: 'optional url', materialType: 'optional', position: '[x,y,z]' },
+  },
+  addParticleSystem: {
+    desc: '添加粒子系统（等同核心→粒子物体）',
+    params: { particlesSum: 'number', inner: 'number', outer: 'number', mapUrl: 'optional url', size: 'optional' },
+  },
+  addDrawLine: {
+    desc: '用绘制核心「直线」模式从点列创建 Line2',
+    params: { points: '[[x,y,z],...]', lineWidth: 'optional' },
+  },
+  deselectAll: { desc: '取消选中并清除轮廓高亮', params: {} },
+  setOutlineSelection: { desc: '设置 outlinePass 高亮对象', params: { ids: 'number[]' } },
+  nudgeTransform: { desc: '微调位移(Q/W/E/A/S/D 等价)', params: { id: 'number', dx: 'number', dy: 'number', dz: 'number' } },
+  rotateObject90: { desc: '绕轴旋转 90°(Shift+X/Y/Z 等价)', params: { id: 'number', axis: 'x|y|z', sign: '1|-1 optional' } },
+  addCss2dLabel: { desc: '在场景中添加 CSS2D 标签', params: { html: 'string', position: '[x,y,z]' } },
+  addCss3dElement: { desc: '在场景中添加 CSS3D DOM', params: { html: 'string', position: '[x,y,z]' } },
+  saveViewAngle: { desc: '记录当前相机视角到 viewAngleList', params: { name: 'string' } },
+  flyToViewAngle: { desc: '飞到已记录视角', params: { index: 'number' } },
+  listViewAngles: { desc: '列出已记录视角', params: {} },
+  listClippingPlanes: { desc: '列出 renderer 裁剪面', params: {} },
+  addClippingPlane: { desc: '添加裁剪面', params: { normal: '[x,y,z]', constant: 'number' } },
+  clearClippingPlanes: { desc: '清除所有裁剪面', params: {} },
+  getSceneStats: { desc: '物体/顶点/三角面统计', params: {} },
+  switchScene: { desc: '切换 localStorage 场景槽并 resetEditorStorage', params: { name: 'string' } },
+  createSceneSlot: { desc: '新建场景槽', params: { name: 'string' } },
+  deleteSceneSlot: { desc: '删除场景槽', params: { name: 'string' } },
+  setPixelRatio: { desc: '设置像素比并刷新页面', params: { ratio: '0.5-3' } },
+  setLogDepthBuffer: { desc: '对数深度缓冲并刷新', params: { enabled: 'boolean' } },
+  getShareLink: { desc: '获取分享链接', params: { sceneName: 'optional' } },
+  loadOnlineModel: { desc: 'modelCores.loadModel + attach_add（等同核心→模型管理）', params: { url: 'string', position: '[x,y,z] optional', flyTo: 'boolean optional' } },
+  addInnerMesh: { desc: '内置物体（等同 innerCores→添加，默认 scale×10）', params: { geometryType: 'BoxGeometry 等', materialType: 'optional', position: '[x,y,z]', scale: 'number optional' } },
+  addCoreLight: { desc: '添加光源并 attach_add（等同 lightCores）', params: { type: 'AmbientLight|平行光|...', position: '[x,y,z]', color: 'hex optional', intensity: 'number optional' } },
+  applyBlendShader: { desc: '混合着色器（等同对象→着色配置）', params: { id: 'number', shaderName: '如 水波纹', uvType: 'material|world optional' } },
+  listBlendShaders: { desc: '列出可用混合着色器名', params: {} },
+  setSceneSkybox: { desc: '六面 skybox（baseUrl/1.png..6.png）或 clear', params: { baseUrl: 'string optional', clear: 'boolean optional' } },
+  setSceneEnvironment: { desc: '环境贴图 IBL', params: { baseUrl: 'string', enabled: 'boolean optional' } },
+  animateMeshTransform: { desc: 'GSAP 变换动画（等同其他→变换动画）', params: { id: 'number', position: '[x,y,z]', rotation: '[x,y,z]', scale: '[x,y,z]', duration: 'optional', mode: 'to|from optional' } },
+  addSpriteLabel: { desc: 'Sprite 文字标签（createSpriteText）', params: { text: 'string', position: '[x,y,z]', color: 'optional', fontSize: 'optional' } },
+  playCoreModelAnimation: { desc: 'modelCores.modelAnimationPlay', params: { id: 'number', initPlay: 'boolean', speed: 'number', loop: 'boolean' } },
+  setHandlerOptions: { desc: 'handler.mode / transformControls.mode', params: { mode: 'transform|select|none', transformMode: 'translate|rotate|scale', openKeyEnable: 'boolean optional' } },
+  setPreview: { desc: '预览模式(handler.mode=none)，不控制侧栏折叠', params: { enabled: 'boolean' } },
+  applyTheatreAnimation: { desc: '应用 Theatre 时间线 JSON（会 reload）', params: { urlOrName: 'string' } },
+  clearTheatreAnimation: { desc: '清除 Theatre 动画（会 reload）', params: {} },
+  controlTheatreSheet: { desc: '控制 Theatre sheet 播放', params: { index: 'number', action: 'play|pause|reset' } },
+  clearEditorCache: { desc: '清理 localStorage/IndexDB 并刷新（危险，需 confirm:true）', params: { confirm: 'boolean 必须为 true' } },
+}
+
+export function listEditorActions() {
+  const cores = CORES_LIST.map(c => ({ name: c.name, label: c.label }))
+  return {
+    total: Object.keys(EDITOR_ACTIONS).length,
+    actions: Object.entries(EDITOR_ACTIONS).map(([name, meta]) => ({ name, desc: meta.desc, params: meta.params })),
+    cores,
+    otherPanels: OTHER_PANELS,
+    hint: '专用工具优先；其余 runEditorAction。模型/内置/灯光/着色器优先 addInnerMesh/addCoreLight/applyBlendShader/loadOnlineModel（走 attach_add）',
+  }
+}
+
+function openCorePanel(editor, { panel }) {
+  if (!editor.GUI) return { error: 'GUI 未就绪' }
+  if (editor.GUI.children.length <= 1) editor.openControlPanel?.()
+  const core = CORES_LIST.find(c => c.name === panel || c.label === panel)
+  if (!core?.createPanel) return { error: `未知 core「${panel}」`, cores: CORES_LIST.map(c => c.label) }
+  try {
+    core.createPanel(editor.GUI.addDragFolder(core.label), editorArgs(editor), editorCores(editor))
+    return { opened: core.label, core: core.name }
+  } catch (e) {
+    return { error: `打开 core 面板失败: ${e?.message || String(e)}` }
+  }
+}
+
+function openOtherPanel(editor, { panel }) {
+  if (!editor.GUI) return { error: 'GUI 未就绪' }
+  if (editor.GUI.children.length <= 1) editor.openControlPanel?.()
+  const api = editor.panelApi?.otherPanelApi
+  if (!api) return { error: 'otherPanelApi 不可用' }
+  const map = {
+    '编辑动画': api.setAnimateEditorPanel,
+    '视角动画': api.setControlsAnimationPanel,
+    '变换动画': api.setMeshAnimationPanel,
+    '裁剪场景': api.setClippingPanel,
+  }
+  const fn = map[panel]
+  if (!fn) return { error: `未知 panel「${panel}」`, panels: OTHER_PANELS }
+  try {
+    fn(editorArgs(editor), editorCores(editor), editor.GUI.addDragFolder(panel))
+    return { opened: panel }
+  } catch (e) {
+    return { error: `打开面板失败: ${e?.message || String(e)}` }
+  }
+}
+
+async function addText3D(editor, { text, fontLink, materialType, position }) {
+  const tc = editor.textCores
+  if (!tc) return { error: 'textCores 不可用' }
+  const t = String(text || tc.text || 'Text').slice(0, 128)
+  const fontUrl = fontLink || tc.fontLink
+  if (!fontUrl) return { error: '缺少 fontLink' }
+  const matType = materialType || tc.materialType || 'MeshBasicMaterial'
+  const MatCls = resolveClass(matType, THREE.MeshBasicMaterial)
+  let font
+  try {
+    font = await new FontLoader().loadAsync(fontUrl)
+  } catch (e) {
+    return { error: `字体加载失败: ${e?.message || fontUrl}` }
+  }
+  const geo = new TextGeometry(t, { font, size: 0.5, height: 0.08, curveSegments: 8 })
+  geo.computeBoundingBox()
+  geo.center()
+  const mesh = new THREE.Mesh(geo, new MatCls())
+  mesh.fontLink = fontUrl
+  mesh.text = t
+  mesh.editorType = 'isTextMesh'
+  mesh.name = t.slice(0, 16)
+  const pos = safeVec3(position)
+  if (pos) mesh.position.set(...pos)
+  attachObject(editor, mesh)
+  return { object: { id: mesh.id, name: mesh.name, type: 'TextMesh', text: t } }
+}
+
+function addParticleSystem(editor, params = {}) {
+  const pc = editor.particleCores
+  if (!pc) return { error: 'particleCores 不可用' }
+  const cfg = {
+    particlesSum: params.particlesSum ?? pc.particlesSum ?? 5000,
+    inner: params.inner ?? pc.inner ?? 0,
+    outer: params.outer ?? pc.outer ?? 2000,
+    mapUrl: params.mapUrl ?? pc.mapUrl,
+  }
+  const inner = Math.max(0, fin(cfg.inner, 0))
+  const outer = Math.max(inner + 0.001, fin(cfg.outer, inner + 2000))
+  const count = clampN(cfg.particlesSum, 100, 20000)
+  const positions = new Float32Array(count * 3)
+  for (let i = 0; i < count; i++) {
+    const rad = inner + Math.random() * (outer - inner)
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    positions[i * 3] = rad * Math.sin(phi) * Math.cos(theta)
+    positions[i * 3 + 1] = rad * Math.sin(phi) * Math.sin(theta)
+    positions[i * 3 + 2] = rad * Math.cos(phi)
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  const mat = new THREE.PointsMaterial({ size: params.size ?? 0.15, transparent: true, opacity: 0.85 })
+  if (cfg.mapUrl) {
+    new THREE.TextureLoader().load(cfg.mapUrl, tex => { mat.map = tex; mat.needsUpdate = true })
+  }
+  const pts = new THREE.Points(geo, mat)
+  pts.editorType = 'isParticleMesh'
+  pts.name = '粒子'
+  pts.parameters = { ...pc, ...params }
+  attachObject(editor, pts)
+  return {
+    object: { id: pts.id, type: 'Points', editorType: pts.editorType },
+    hint: '基础粒子；完整着色器请 openCorePanel({ panel: "粒子物体" })',
+  }
+}
+
+function addDrawLine(editor, { points, lineWidth, color }) {
+  if (!Array.isArray(points) || points.length < 2) return { error: 'points 至少 2 个点' }
+  if (points.length > MAX_DRAW_POINTS) return { error: `points 最多 ${MAX_DRAW_POINTS} 个` }
+  const flat = []
+  for (const p of points) {
+    const v = safeVec3(p)
+    if (!v) return { error: 'points 格式无效' }
+    flat.push(v[0], v[1] + 0.001, v[2])
+  }
+  const geo = new LineGeometry().setPositions(flat)
+  const hex = color?.startsWith('#') ? color : '#ffffff'
+  const mat = new LineMaterial({ color: hex, linewidth: lineWidth ?? 1, worldUnits: false })
+  mat.resolution.set(editor.renderer?.domElement?.clientWidth || 1920, editor.renderer?.domElement?.clientHeight || 1080)
+  const line = new Line2(geo, mat)
+  line.computeLineDistances()
+  line.editorType = 'isDrawMesh'
+  line.drawParams = { mode: 'straight', points: points.map(p => new THREE.Vector3(...p)), lineWidth: lineWidth ?? 1 }
+  line.name = 'DrawLine'
+  attachObject(editor, line)
+  return { object: { id: line.id, type: line.type, editorType: line.editorType, pointCount: points.length } }
+}
+function deselectAll(editor) {
+  editor.transformControls?.detach?.()
+  const op = editor.effectComposer?.effectPass?.outlinePass
+  if (op) op.selectedObjects = []
+  return { deselected: true }
+}
+
+function setOutlineSelection(editor, { ids }) {
+  if (!Array.isArray(ids)) return { error: 'ids 需为数组' }
+  const objs = ids.map(id => find(editor.scene, id)).filter(o => o && !isProtected(o))
+  if (!objs.length) return { error: '未找到有效对象' }
+  editor.setOutlinePass?.(objs)
+  editor.transformControls?.attach?.(objs[0])
+  return { count: objs.length, ids: objs.map(o => o.id) }
+}
+
+function nudgeTransform(editor, { id, dx = 0, dy = 0, dz = 0 }) {
+  const { obj: o, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  o.position.x += clampN(dx, -MAX_POS, MAX_POS)
+  o.position.y += clampN(dy, -MAX_POS, MAX_POS)
+  o.position.z += clampN(dz, -MAX_POS, MAX_POS)
+  editor.transformControls?.attach?.(o)
+  return { id, position: [o.position.x, o.position.y, o.position.z] }
+}
+
+function rotateObject90(editor, { id, axis = 'y', sign = 1 }) {
+  const { obj: o, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  const s = sign >= 0 ? 1 : -1
+  const a = String(axis).toLowerCase()
+  if (a === 'x') o.rotation.x += s * Math.PI / 2
+  else if (a === 'z') o.rotation.z += s * Math.PI / 2
+  else o.rotation.y += s * Math.PI / 2
+  editor.transformControls?.attach?.(o)
+  return { id, rotation: [o.rotation.x, o.rotation.y, o.rotation.z] }
+}
+
+function addCss2dLabel(editor, { html, position }) {
+  if (!html) return { error: 'html 必填' }
+  if (!Array.isArray(position) || position.length !== 3) return { error: 'position 无效' }
+  const el = document.createElement('div')
+  el.innerHTML = html
+  el.style.cssText = 'color:#fff;font-size:14px;pointer-events:none;white-space:nowrap;'
+  editor.setCss2dDOM?.(el, { x: position[0], y: position[1], z: position[2] })
+  return { added: true, type: 'css2d' }
+}
+
+function addCss3dElement(editor, { html, position }) {
+  if (!html) return { error: 'html 必填' }
+  if (!Array.isArray(position) || position.length !== 3) return { error: 'position 无效' }
+  const el = document.createElement('div')
+  el.innerHTML = html
+  editor.setCss3dDOM?.(el, { x: position[0], y: position[1], z: position[2] })
+  return { added: true, type: 'css3d' }
+}
+
+function saveViewAngle(editor, { name }) {
+  const list = editor.other?.viewAngleList
+  if (!list || !editor.camera || !editor.controls?.target) return { error: 'viewAngleList 或相机未就绪' }
+  const n = String(name || `视角${list.length + 1}`).slice(0, 64)
+  list.push({
+    name: n,
+    position: editor.camera.position.clone(),
+    target: editor.controls.target.clone(),
+  })
+  return { saved: n, index: list.length - 1, total: list.length }
+}
+
+async function flyToViewAngle(editor, { index }) {
+  const list = editor.other?.viewAngleList
+  const item = list?.[index]
+  if (!item || !editor.camera || !editor.controls) return { error: `无 index=${index} 的视角`, total: list?.length ?? 0 }
+  await Promise.all([
+    createGsapAnimation(editor.camera.position, item.position, { duration: 0.5 }),
+    createGsapAnimation(editor.controls.target, item.target, { duration: 0.5 }),
+  ])
+  return { flewTo: item.name, index }
+}
+
+function listViewAngles(editor) {
+  const list = editor.other?.viewAngleList || []
+  return { angles: list.map((a, i) => ({ index: i, name: a.name })) }
+}
+
+function listClippingPlanes(editor) {
+  const planes = editor.renderer?.clippingPlanes || []
+  return {
+    enabled: !!editor.renderer?.localClippingEnabled,
+    count: planes.length,
+    planes: planes.map((p, i) => ({ index: i, normal: [p.normal.x, p.normal.y, p.normal.z], constant: p.constant })),
+  }
+}
+
+function addClippingPlane(editor, { normal, constant = 0 }) {
+  if (!Array.isArray(normal) || normal.length !== 3) return { error: 'normal 需 [x,y,z]' }
+  const r = editor.renderer
+  if (!r) return { error: 'renderer 不可用' }
+  if (!r.clippingPlanes) r.clippingPlanes = []
+  r.clippingPlanes.push(new THREE.Plane(new THREE.Vector3(...normal).normalize(), constant))
+  r.localClippingEnabled = true
+  return listClippingPlanes(editor)
+}
+
+function clearClippingPlanes(editor) {
+  const r = editor.renderer
+  if (r?.clippingPlanes) r.clippingPlanes.length = 0
+  return { cleared: true }
+}
+
+function getSceneStats(editor) {
+  let vertices = 0, triangles = 0, objects = 0
+  editor.scene.traverse(obj => {
+    if (obj.isTransformControls || obj.isHelper || obj.type?.includes('Helper')) return
+    const geo = obj.geometry
+    if (!geo) return
+    objects++
+    const pos = geo.attributes?.position
+    if (pos) vertices += pos.count
+    if (geo.index) triangles += geo.index.count / 3
+    else if (pos) triangles += pos.count / 3
+  })
+  return { objects, vertices: Math.floor(vertices), triangles: Math.floor(triangles) }
+}
+
+function switchScene(editor, { name }) {
+  if (!name) return { error: '缺少 name' }
+  const list = loadSceneList()
+  if (!list.some(o => o.name === name)) return { error: `场景「${name}」不存在`, scenes: list.map(o => o.name) }
+  localStorage.setItem('new_sceneName', name)
+  const raw = localStorage.getItem(`${name}-newEditor`)
+  let data = null
+  if (raw) {
+    try { data = JSON.parse(raw) } catch { return { error: `场景「${name}」数据损坏` } }
+  }
+  editor.resetEditorStorage?.(data)
+  return { switched: name }
+}
+
+function createSceneSlot(_editor, { name }) {
+  if (!name) return { error: '缺少 name' }
+  const list = loadSceneList()
+  if (list.some(o => o.name === name)) return { error: '场景名已存在' }
+  list.push({ name })
+  saveSceneList(list)
+  localStorage.setItem('new_sceneName', name)
+  return { created: name }
+}
+
+function deleteSceneSlot(_editor, { name }) {
+  if (!name) return { error: '缺少 name' }
+  const list = loadSceneList()
+  const idx = list.findIndex(o => o.name === name)
+  if (idx === -1) return { error: `场景「${name}」不存在` }
+  list.splice(idx, 1)
+  saveSceneList(list)
+  localStorage.removeItem(`${name}-newEditor`)
+  const current = localStorage.getItem('new_sceneName')
+  if (current === name) localStorage.setItem('new_sceneName', list[0]?.name || '三维测试')
+  return { deleted: name }
+}
+
+function setPixelRatio(_editor, { ratio }) {
+  if (ratio == null) return { error: '缺少 ratio' }
+  const r = clampN(ratio, 0.5, 3)
+  localStorage.setItem('new_threeEditor_pixelRatio', String(r))
+  setTimeout(() => window.location.reload(), 500)
+  return { ratio: r, reload: true }
+}
+
+function setLogDepthBuffer(_editor, { enabled }) {
+  localStorage.setItem('new_threeEditor_logBuffer', String(!!enabled))
+  setTimeout(() => window.location.reload(), 500)
+  return { enabled: !!enabled, reload: true }
+}
+
+function getShareLink(_editor, { sceneName } = {}) {
+  const name = sceneName || window.currentOnlineSceneName || localStorage.getItem('new_sceneName') || ''
+  const base = `${window.location.origin}${window.location.pathname}`
+  const q = name ? `?sceneName=${encodeURIComponent(name.replace(/\.json$/, ''))}` : ''
+  return { url: `${base}${q}`, sceneName: name || null }
+}
+
+function loadOnlineModel(editor, { url, position, flyTo }) {
+  if (!url) return { error: '缺少 url' }
+  const mc = editor.modelCores
+  if (!mc?.loadModel) return { error: 'modelCores 不可用' }
+  return new Promise(resolve => {
+    try {
+      const loaded = mc.loadModel(url)
+      if (!loaded?.loaderService) {
+        resolve({ error: '无效模型 URL，支持 glb/gltf/fbx/obj' })
+        return
+      }
+      const { loaderService } = loaded
+      loaderService.complete = async (model) => {
+        try {
+          if (!model) { resolve({ error: '模型加载结果为空' }); return }
+          const pos = safeVec3(position)
+          if (pos) model.position.set(...pos)
+          attachObject(editor, model)
+          if (flyTo && editor.camera && editor.controls) {
+            const views = getObjectViews(model, editor.camera)
+            if (views?.maxView && views?.target) {
+              await Promise.all([
+                createGsapAnimation(editor.camera.position, views.maxView, { duration: 0.5 }),
+                createGsapAnimation(editor.controls.target, views.target, { duration: 0.5 }),
+              ])
+            }
+          }
+          resolve({ object: { id: model.id, name: model.name || '(模型)' }, url, attached: true })
+        } catch (e) {
+          resolve({ error: `模型加载后处理失败: ${e?.message || String(e)}` })
+        }
+      }
+      loaderService.error = (e) => resolve({ error: `模型加载失败: ${e?.message || url}` })
+    } catch (e) {
+      resolve({ error: e?.message || String(e) })
+    }
+  })
+}
+
+function addInnerMesh(editor, { geometryType, materialType, position, scale }) {
+  const ic = editor.innerCores
+  const geoType = geometryType || ic?.geometryType || 'BoxGeometry'
+  const matType = materialType || ic?.materialType || 'MeshStandardMaterial'
+  const GeoCls = resolveClass(geoType, null)
+  const MatCls = resolveClass(matType, THREE.MeshStandardMaterial)
+  if (!GeoCls) return { error: `未知 geometryType「${geoType}」` }
+  const mesh = new THREE.Mesh(new GeoCls(), new MatCls({ side: THREE.DoubleSide }))
+  mesh.name = geoType
+  mesh.scale.multiplyScalar(clampN(scale ?? 10, MIN_SCALE, MAX_SCALE))
+  mesh.editorType = 'isInnerMesh'
+  const pos = safeVec3(position)
+  if (pos) mesh.position.set(...pos)
+  attachObject(editor, mesh)
+  return { object: { id: mesh.id, name: mesh.name, geometryType: geoType, materialType: matType } }
+}
+
+function addCoreLight(editor, { type, position, color, intensity }) {
+  const resolved = resolveLightType(editor, type || 'DirectionalLight')
+  const hex = safeHex(color) ?? 0xffffff
+  const light = createCoreLight(resolved, { color: hex, intensity: clampN(intensity ?? 1, 0, 100) })
+  if (!light) return { error: `未知灯光「${type}」`, types: Object.keys(LIGHT_ZH).concat(['AmbientLight', 'DirectionalLight', 'PointLight', 'SpotLight', 'HemisphereLight', 'RectAreaLight']) }
+  if (light.target) editor.scene.add(light.target)
+  light.editorType = 'isLight'
+  light.name = type || resolved
+  const pos = safeVec3(position) || [0, 5, 0]
+  light.position.set(...pos)
+  attachObject(editor, light)
+  return { object: { id: light.id, name: light.name, type: light.type } }
+}
+
+function listBlendShaders(editor) {
+  const fromStatic = Array.isArray(ThreeEditor.__GLSLLIB__)
+    ? ThreeEditor.__GLSLLIB__.map(i => i?.name).filter(Boolean)
+    : []
+  const lib = editor?.shaderCores?.shaderLibrary || editor?.scene?.shaderLibrary
+  const fromRuntime = lib ? Object.keys(lib).filter(k => typeof lib[k] === 'object') : []
+  const shaders = [...new Set([...fromStatic, ...fromRuntime])]
+  return { shaders: shaders.length ? shaders : ['水波纹'], hint: 'applyBlendShader({ id, shaderName })' }
+}
+
+function applyBlendShader(editor, { id, shaderName, uvType }) {
+  const { obj, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  const fn = editor.shaderCores?.setObjectBlendShader
+  if (!fn) return { error: 'shaderCores.setObjectBlendShader 不可用', hint: 'openCorePanel({ panel: "shaderCores" })' }
+  const name = String(shaderName || '水波纹').slice(0, 64)
+  const uv = uvType === 'world' ? 'world' : 'material'
+  try {
+    fn(obj, name, uv)
+  } catch (e) {
+    return { error: `着色器应用失败: ${e?.message || String(e)}` }
+  }
+  editor.transformControls?.attach?.(obj)
+  return { id: obj.id, shader: name, uvType: uv }
+}
+
+function setSceneSkybox(editor, { baseUrl, clear }) {
+  if (clear || baseUrl === '') {
+    editor.scene.background = null
+    editor.scene.resetEnv?.()
+    return { cleared: true }
+  }
+  if (!baseUrl) return { error: '需要 baseUrl 或 clear:true' }
+  const root = baseUrl.replace(/\/$/, '')
+  editor.scene.setSceneBackground?.(Array.from({ length: 6 }, (_, i) => `${root}/${i + 1}.png`))
+  return { skybox: root }
+}
+
+function setSceneEnvironment(editor, { baseUrl, enabled = true }) {
+  if (!baseUrl) return { error: '缺少 baseUrl' }
+  const root = baseUrl.replace(/\/$/, '')
+  editor.scene.setEnvBackground?.(Array.from({ length: 6 }, (_, i) => `${root}/${i + 1}.png`))
+  editor.scene.environmentEnabled = !!enabled
+  return { environment: root, enabled: !!enabled }
+}
+
+async function animateMeshTransform(editor, { id, position, rotation, scale, duration = 2, mode = 'to' }) {
+  const { obj, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  const from = getTransformInfo(obj)
+  const p = safeVec3(position)
+  const rot = rotation ? safeVec3(rotation) : null
+  const sc = scale ? safeVec3(scale, MIN_SCALE, MAX_SCALE) : null
+  const to = {
+    position: p ? { x: p[0], y: p[1], z: p[2] } : from.position,
+    rotation: rot ? { x: rot[0], y: rot[1], z: rot[2] } : from.rotation,
+    scale: sc ? { x: sc[0], y: sc[1], z: sc[2] } : from.scale,
+  }
+  const m = mode === 'from' || mode === 'fromTo' ? mode : 'to'
+  await setGsapMeshAction(obj, from, to, { mode: m, query: { duration: clampN(duration, 0.1, 30), ease: 'none', repeat: 0, yoyo: false } })
+  editor.transformControls?.attach?.(obj)
+  return { id, animated: true, position: [obj.position.x, obj.position.y, obj.position.z] }
+}
+
+function addSpriteLabel(editor, { text, position, color, fontSize }) {
+  if (!text) return { error: 'text 必填' }
+  const sprite = createSpriteText({ text: String(text).slice(0, 256), color, fontSize })
+  if (Array.isArray(position) && position.length === 3) sprite.position.set(...position)
+  attachObject(editor, sprite)
+  return { object: { id: sprite.id, type: 'Sprite', text: String(text).slice(0, 64) } }
+}
+
+function playCoreModelAnimation(editor, params = {}) {
+  const { id, ...animParams } = params
+  const { obj, error } = findEditable(editor.scene, id)
+  if (error) return { error }
+  const fn = editor.modelCores?.modelAnimationPlay
+  if (!fn) return { error: 'modelAnimationPlay 不可用' }
+  try {
+    fn(obj, animParams)
+  } catch (e) {
+    return { error: `动画播放失败: ${e?.message || String(e)}` }
+  }
+  return { playing: true, id, params: animParams }
+}
+
+function setHandlerOptions(editor, { mode, transformMode, openKeyEnable }) {
+  const h = editor.handler
+  if (!h) return { error: 'handler 不可用' }
+  if (mode && !HANDLER_MODES.has(mode)) return { error: `mode 需 ${[...HANDLER_MODES].join('|')}` }
+  if (transformMode && !TRANSFORM_MODES.has(transformMode)) return { error: `transformMode 需 ${[...TRANSFORM_MODES].join('|')}` }
+  if (mode) h.mode = mode
+  if (openKeyEnable != null) h.openKeyEnable = !!openKeyEnable
+  const tc = editor.transformControls
+  if (transformMode && tc) {
+    if (typeof tc.setMode === 'function') tc.setMode(transformMode)
+    else tc.mode = transformMode
+  }
+  return { handlerMode: h.mode, transformMode: tc?.mode, openKeyEnable: h.openKeyEnable }
+}
+
+function setPreview(editor, { enabled }) {
+  if (!editor.handler) return { error: 'handler 未就绪' }
+  editor.handler.mode = enabled ? 'none' : 'transform'
+  return { preview: !!enabled, handlerMode: editor.handler.mode }
+}
+
+function resolveAnimUrl(urlOrName) {
+  if (urlOrName?.startsWith('http')) return urlOrName
+  const list = (window.animateJsons || []).map(animJsonPath)
+  return list.find(u => u.includes(urlOrName)) || null
+}
+
+async function applyTheatreAnimation(_editor, { urlOrName }) {
+  const url = resolveAnimUrl(urlOrName)
+  if (!url) return { error: `未找到动画「${urlOrName}」` }
+  let res
+  try { res = await fetch(url) } catch (e) { return { error: `网络请求失败: ${e?.message || url}` } }
+  if (!res.ok) return { error: `动画加载失败: HTTP ${res.status}` }
+  let data
+  try { data = await res.json() } catch { return { error: '动画 JSON 解析失败' } }
+  if (!data || typeof data !== 'object') return { error: '动画 JSON 无效' }
+  localStorage.removeItem('theatre-0.4.persistent')
+  localStorage.setItem('THREE_EDITOR_ANIMATIONS', JSON.stringify(data))
+  setTimeout(() => window.location.reload(), 800)
+  return { applied: url.split('/').pop(), reload: true }
+}
+
+function clearTheatreAnimation() {
+  localStorage.removeItem('theatre-0.4.persistent')
+  localStorage.removeItem('THREE_EDITOR_ANIMATIONS')
+  setTimeout(() => window.location.reload(), 800)
+  return { cleared: true, reload: true }
+}
+
+function getTheatreSheets(editor) {
+  const sheets = editor.other?.animateEditor?.studio?.studioProject?.sheets
+  if (!sheets) return []
+  return Object.keys(sheets).map(k => ({ name: sheets[k].name || k, sequence: sheets[k].sequence }))
+}
+
+function controlTheatreSheet(editor, { index = 0, action = 'play' }) {
+  const list = getTheatreSheets(editor)
+  const sheet = list[index]
+  if (!sheet?.sequence) return { error: `无 index=${index} 的 sheet`, total: list.length }
+  if (action === 'play') sheet.sequence.play({ iterationCount: Infinity })
+  else if (action === 'pause') sheet.sequence.pause()
+  else if (action === 'reset') { sheet.sequence.pause(); sheet.sequence.position = 0 }
+  else return { error: 'action 需 play|pause|reset' }
+  return { index, action, name: sheet.name }
+}
+
+function clearEditorCache(_editor, { confirm } = {}) {
+  if (!confirm) return { error: '危险操作：需 params.confirm=true 才会执行' }
+  localStorage.clear()
+  sessionStorage.clear()
+  window.indexedDB.deleteDatabase('new_threeEditor_db')
+  setTimeout(() => window.location.reload(), 800)
+  return { cleared: true, reload: true }
+}
+
+const HANDLERS = {
+  openCorePanel,
+  openOtherPanel,
+  addText3D,
+  addParticleSystem,
+  addDrawLine,
+  deselectAll,
+  setOutlineSelection,
+  nudgeTransform,
+  rotateObject90,
+  addCss2dLabel,
+  addCss3dElement,
+  saveViewAngle,
+  flyToViewAngle,
+  listViewAngles,
+  listClippingPlanes,
+  addClippingPlane,
+  clearClippingPlanes,
+  getSceneStats,
+  switchScene,
+  createSceneSlot,
+  deleteSceneSlot,
+  setPixelRatio,
+  setLogDepthBuffer,
+  getShareLink,
+  loadOnlineModel,
+  addInnerMesh,
+  addCoreLight,
+  listBlendShaders,
+  applyBlendShader,
+  setSceneSkybox,
+  setSceneEnvironment,
+  animateMeshTransform,
+  addSpriteLabel,
+  playCoreModelAnimation,
+  setHandlerOptions,
+  setPreview,
+  applyTheatreAnimation,
+  clearTheatreAnimation,
+  controlTheatreSheet,
+  clearEditorCache,
+}
+
+export async function runEditorAction(editor, { action, params = {} }) {
+  if (!editor?.scene) return { error: '编辑器未就绪' }
+  if (!action) return { error: '缺少 action', hint: 'listEditorActions 查可用 action' }
+  if (!EDITOR_ACTIONS[action]) return { error: `未知 action「${action}」`, hint: '先 listEditorActions' }
+  const fn = HANDLERS[action]
+  if (!fn) return { error: `action「${action}」尚未实现` }
+  try {
+    return await fn(editor, params ?? {})
+  } catch (err) {
+    return { error: `操作失败: ${err?.message || String(err)}` }
+  }
+}
+
+
+// ═══ L2 场景实现（改 ThreeEditor.scene 的全部逻辑）══════════════════
+
+// L2a · 安全 · 查找 · 读场景 · 贴地
 function isProtected(o) {
   return !o || o.isTransformControlsRoot || o.isHelper || PROTECTED.has(o.type) || o.isCamera
 }
-
-function isEditable(o) {
-  return o && !isProtected(o)
-}
-
-function fin(n, fb = 0) {
-  const x = Number(n)
-  return Number.isFinite(x) ? x : fb
-}
-
-function clampN(n, lo, hi) {
-  return Math.min(Math.max(fin(n, lo), lo), hi)
-}
+function isEditable(o) { return o && !isProtected(o) }
+function fin(n, fb = 0) { const x = Number(n); return Number.isFinite(x) ? x : fb }
+function clampN(n, lo, hi) { return Math.min(Math.max(fin(n, lo), lo), hi) }
 
 function safeVec3(arr, lo = -MAX_POS, hi = MAX_POS) {
   if (!Array.isArray(arr) || arr.length !== 3) return null
@@ -152,6 +832,7 @@ function guardTool(def) {
     },
   })
 }
+const mk = (description, inputSchema, execute) => guardTool({ description, inputSchema, execute })
 
 function safeCall(fn, label) {
   try { fn?.() } catch (err) { console.warn(`[AI scene] ${label}:`, err) }
@@ -437,6 +1118,55 @@ function placeOnGround(editor, { id, groundY, flat, x, z, refId }) {
   }
 }
 
+// L2b · 组件识别 · params/uniforms 读写（左侧面板 designType 物体）
+const _reviewedComponents = new WeakMap()
+
+function getReviewedSet(editor) {
+  if (!editor) return null
+  let set = _reviewedComponents.get(editor)
+  if (!set) { set = new Set(); _reviewedComponents.set(editor, set) }
+  return set
+}
+
+function resolveComponentLabel(label) {
+  const d = ThreeEditor.__DESIGNS__.find(x => x.label === label || x.name === label)
+  return d?.label || label
+}
+
+function markComponentReviewed(editor, label) {
+  getReviewedSet(editor)?.add(resolveComponentLabel(label))
+}
+
+function isComponentReviewed(editor, label) {
+  return getReviewedSet(editor)?.has(resolveComponentLabel(label)) ?? false
+}
+
+function buildComponentDetail(editor, label) {
+  const design = ThreeEditor.__DESIGNS__.find(d => d.label === label || d.name === label)
+  if (!design) {
+    return { error: `未找到组件「${label}」`, hint: '用 listResources({ query }) 搜索', components: ThreeEditor.__DESIGNS__.map(d => d.label) }
+  }
+  const meta = getComponentMeta(design)
+  markComponentReviewed(editor, meta.label)
+  return {
+    ...meta,
+    defaults: design.initParameters || {},
+    reviewed: true,
+    readyToAdd: true,
+    nextStep: `addComponent({ label: "${meta.label}", position: [0,0,0] })`,
+    hint: `已了解：${meta.looksLike}。确认符合需求后可 addComponent；添加后用 editObject 微调，不合适 deleteObject`,
+  }
+}
+
+function attachComponentResult(design, result) {
+  if (result?.error || !design) return result
+  const meta = getComponentMeta(design)
+  return {
+    ...result,
+    component: { label: meta.label, looksLike: meta.looksLike },
+    next: 'editObject 调 params/uniforms；不符合预期 deleteObject',
+  }
+}
 function findDesign(obj) {
   if (!obj?.designType) return null
   return ThreeEditor.__DESIGNS__.find(d => d.name === obj.designType)
@@ -445,28 +1175,6 @@ function findDesign(obj) {
 function isGroundComponent(design) {
   const tag = `${design?.label || ''}${design?.name || ''}`
   return /地面|floor|ground|海面|grass|Grass/i.test(tag)
-}
-
-const ELEMENT_CATEGORIES = [
-  { id: 'ground', label: '地面/环境底', keywords: /地面|floor|ground|海面|grass|Grass|sky|天空|groundSky|roomEnv|cubeEnv|磨砂反射/ },
-  { id: 'effect', label: '粒子/特效', keywords: /粒子|火焰|烟花|下雪|喷水|烟|smoke|fire|zhengqi|极光|黑洞|魔法|扩散|彩虹|ice|蜡烛/ },
-  { id: 'chart', label: '数据图表', keywords: /chart|Charts|图表|柱状|折线|饼|scatter|radar|拓扑/ },
-  { id: 'ui', label: 'UI/标注', keywords: /css2d|css3d|ui-|iframe|热点|警告|亮光|精灵|刻度|2dLink|评分|轮播|表单/ },
-  { id: 'geo', label: '地理/地图', keywords: /地球|3dtiles|智慧城市|levelBuild|全景|viewAngle/ },
-  { id: 'light_fx', label: '光效/扫描', keywords: /光柱|扫光|雷达|扫描|扩散波/ },
-  { id: 'model_fx', label: '模型/展示', keywords: /反射模型|分解|锥子|高斯|人物行走|路径运动|围墙|动态圆墙/ },
-  { id: 'physics', label: '物理/交互', keywords: /cannon|物理|eventCall|audio/ },
-  { id: 'water', label: '水体/流体', keywords: /宽水流|海面/ },
-  { id: 'other', label: '其他组件', keywords: null },
-]
-
-const OBJECT_TYPES_GUIDE = {
-  component: { 来源: '左侧面板 addComponent', 识别: '有 designType', 修改: 'setObjectParams(params/uniforms/materials)', 注意: '含 shader/动画逻辑，勿只改 position' },
-  mesh: { 来源: 'addMesh 基础几何', 识别: 'editorType=isInnerMesh 或无 designType 的 Mesh', 修改: 'setProps / setMaterial' },
-  model: { 来源: 'addModel', 识别: '含 animations 或 GLB/FBX', 修改: 'setProps + playAnimation' },
-  light: { 来源: 'addLight / addNativeLight', 识别: 'isLight', 修改: 'setProps / setLightProps' },
-  floor: { 来源: '平面或地面组件', 识别: 'isFloorLike 或地面类 designType', 修改: 'placeOnGround 参考；scale 保持正方形', 注意: '决定 recommendedGroundY' },
-  group: { 来源: 'createGroup / 组件容器', 识别: 'type=Group', 修改: 'setProps；子物体 getDetail.children' },
 }
 
 function inferComponentCategory(label = '', name = '') {
@@ -483,10 +1191,11 @@ function classifySceneObject(o) {
   if (o.designType) {
     const design = findDesign(o)
     const cat = inferComponentCategory(design?.label || '', o.designType)
+    const looks = design ? describeComponentLooks(design).slice(0, 48) : ''
     return {
       role: 'component', category: cat.id,
       componentLabel: design?.label || o.designType,
-      hint: `${cat.label}，用 setObjectParams 改 params/uniforms`,
+      hint: looks ? `${looks}；setObjectParams 改 params` : `${cat.label}，用 setObjectParams 改 params/uniforms`,
     }
   }
   if (o.animations?.length) return { role: 'model', category: 'model', hint: 'GLB 模型，listAnimations → playAnimation' }
@@ -497,19 +1206,95 @@ function classifySceneObject(o) {
   return { role: 'other', category: 'other', hint: 'getDetail 进一步分析' }
 }
 
+function describeComponentLooks(design) {
+  if (!design) return ''
+  const label = design.label || design.name || ''
+  if (design.aiDesc) return design.aiDesc
+  if (COMPONENT_HINTS[label]) return COMPONENT_HINTS[label]
+  const tag = `${label}${design.name || ''}`
+  const p = design.initParameters || {}
+  const parts = []
+  if (/网格地面|科技地面|扫光地面|磨砂反射/.test(tag)) parts.push('XZ 平面 shader 地板/网格，不是立方体')
+  else if (/grass|草地/.test(tag)) parts.push('Instanced 草叶铺满的草坪地面')
+  else if (/海面|宽水流/.test(tag)) parts.push('动画水面/河流，水平大平面')
+  else if (/雷达扫描|扩散波|扫光/.test(tag)) parts.push('地面或空间上的圆形扫描/波纹动效')
+  else if (/光柱/.test(tag)) parts.push('垂直发光光柱，地标/强调用')
+  else if (/chart|Charts|图表|柱状|折线|饼|scatter|拓扑|雷达图/.test(tag)) parts.push('3D 数据图表，需配置数据 params')
+  else if (/粒子|fire|烟花|下雪|火焰|smoke|烟|蒸汽|数字雨|科技粒子/.test(tag)) parts.push('粒子/点精灵系统，大量小点而非单个 solid mesh')
+  else if (/地球|3dtiles|智慧城市|大楼展开/.test(tag)) parts.push('地理/城市场景，体量大，非小装饰物')
+  else if (/css2d|css3d|ui-|iframe|热点|警告|轮播|表单|评分|2dLink|2D链接|刻度轴|精灵图标|亮光标记/.test(tag)) parts.push('DOM/HTML 或 2D 标注叠在 3D 上，是 UI 不是几何体')
+  else if (/天空|groundSky|roomEnv|cubeEnv/.test(tag)) parts.push('天空/环境/反射，影响整场景而非单个摆件')
+  else if (/围墙|动态圆墙|路径运动|人物行走|分解还原|反射模型/.test(tag)) parts.push('围绕模型的展示/动画逻辑，不是基础几何')
+  else if (/魔法阵|彩虹漩涡|黑洞|极光|蜡烛/.test(tag)) parts.push('艺术 shader 特效组')
+  else if (/全景|全景视频/.test(tag)) parts.push('360° 全景视频球/环境')
+  else if (/音乐播放器|audio/.test(tag)) parts.push('音频播放 UI，几乎不可见几何')
+  if ('text' in p || 'content' in p || 'message' in p || 'fontSize' in p) parts.push('含文字内容参数')
+  if (!parts.length) {
+    const cat = inferComponentCategory(design.label, design.name)
+    parts.push(`${cat.label}「${label}」`)
+  }
+  return parts.join('；')
+}
+
+function componentUsageHints(design) {
+  const label = design.label || design.name || ''
+  const meshAlt = MESH_INSTEAD[label]
+  const cat = inferComponentCategory(design.label, design.name)
+  const when = []
+  const avoid = []
+  if (meshAlt) avoid.push(`若只需简单形状，用 addMesh(${meshAlt}) 而非本组件`)
+  if (cat.id === 'ground') when.push('需要 shader 地面/海面/草坪时')
+  else if (cat.id === 'chart') when.push('需要数据可视化大屏时')
+  else if (cat.id === 'ui') when.push('需要 3D 场景内 UI/标签/热点时')
+  else if (cat.id === 'effect') when.push('需要粒子/火焰/天气等氛围特效时')
+  else if (cat.id === 'geo') when.push('需要地图/城市/地理展示时')
+  else when.push('明确需要此特效/功能时')
+  avoid.push('不要用来代替 addMesh 基础几何（立方体/球/柱/平面）')
+  if (/环境|天空|roomEnv|cubeEnv|groundSky/.test(label)) avoid.push('不是往场景里「放一个物体」')
+  return { whenToUse: when.join('；'), avoidWhen: avoid.join('；') }
+}
+
 function getComponentMeta(design) {
   if (!design) return null
   const cat = inferComponentCategory(design.label, design.name)
   const keyParams = design.initParameters ? Object.keys(design.initParameters).slice(0, 8) : []
+  const usage = componentUsageHints(design)
   return {
     label: design.label,
     name: design.name,
     category: cat.id,
     categoryLabel: cat.label,
+    looksLike: describeComponentLooks(design),
+    whenToUse: usage.whenToUse,
+    avoidWhen: usage.avoidWhen,
     autoGround: isGroundComponent(design),
     keyParams,
-    add: `addComponent({ type:"${design.label}", onGround:${isGroundComponent(design)} })`,
+    add: `addComponent({ label:"${design.label}", position:[0,0,0], onGround:${isGroundComponent(design)} })`,
     edit: 'setObjectParams({ id, params, uniforms, materials })',
+  }
+}
+
+function searchComponents(query, limit = 10) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return { error: '请提供 query 关键词' }
+  const designs = ThreeEditor.__DESIGNS__ || []
+  const scored = designs.map(d => {
+    const meta = getComponentMeta(d)
+    const hay = `${d.label}${d.name}${meta.categoryLabel}${meta.looksLike}`.toLowerCase()
+    let score = 0
+    if (d.label === query || d.name === query) score += 100
+    else if (d.label.toLowerCase().includes(q)) score += 60
+    else if (hay.includes(q)) score += 30
+    for (const word of q.split(/\s+/).filter(Boolean)) {
+      if (hay.includes(word)) score += 10
+    }
+    return { ...meta, score }
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit)
+  return {
+    query,
+    count: scored.length,
+    matches: scored.map(({ score, ...rest }) => rest),
+    hint: scored.length ? '从 matches 选 label → listResources({ label }) 了解详情 → addComponent' : '无匹配，换关键词或 listResources 浏览分类',
   }
 }
 
@@ -743,16 +1528,6 @@ function setObjectParams(editor, { id, params, uniforms, extras, materials }) {
   return result
 }
 
-function listComponentSchema(label) {
-  const design = ThreeEditor.__DESIGNS__.find(d => d.label === label || d.name === label)
-  if (!design) return { error: `未找到组件「${label}」`, components: ThreeEditor.__DESIGNS__.map(d => d.label) }
-  const meta = getComponentMeta(design)
-  return {
-    ...meta,
-    defaults: design.initParameters || {},
-    hint: `${meta.categoryLabel}组件；添加后 ${meta.edit}`,
-  }
-}
 
 function listModels() {
   return (window.models || []).map(url => ({ name: url.split('/').pop(), url }))
@@ -768,6 +1543,7 @@ function resolveModelUrl(urlOrName) {
   return m || null
 }
 
+// L2c · 物体增删改（setProps / addMesh / addComponent / addModel / addLight）
 function setProps(editor, { id, name, visible, position, rotation, scale, color, opacity, intensity, castShadow, receiveShadow, renderOrder }) {
   const { obj, error } = findEditable(editor.scene, id)
   if (error) return { error }
@@ -814,20 +1590,6 @@ function setProps(editor, { id, name, visible, position, rotation, scale, color,
   }
   editor.transformControls.attach(obj)
   return { object: detail(obj) }
-}
-
-function attachObject(editor, obj) {
-  const scene = editor?.scene
-  if (!scene || !obj) return
-  if (obj.parent === scene) {
-    editor.transformControls?.attach?.(obj)
-    return
-  }
-  if (scene.attach_add) scene.attach_add(obj)
-  else {
-    scene.add(obj)
-    editor.transformControls?.attach?.(obj)
-  }
 }
 
 function selectObject(editor, id) {
@@ -949,7 +1711,13 @@ async function addMeshes(editor, items) {
 
 async function addComponent(editor, label, position, flyTo = false, onGround) {
   const design = ThreeEditor.__DESIGNS__.find(d => d.label === label || d.name === label)
-  if (!design) return { error: `未找到组件「${label}」`, hint: '用 listCatalog 查可用组件' }
+  if (!design) return { error: `未找到组件「${label}」`, hint: '用 listResources({ query:"关键词" }) 搜索，勿凭名字猜测' }
+  if (!isComponentReviewed(editor, label)) {
+    return {
+      error: `请先 listResources({ label: "${resolveComponentLabel(label)}" }) 了解 looksLike/defaults，确认后再添加`,
+      workflow: ['listResources({ label }) → 了解组件', 'addComponent → 添加到场景尝试', 'editObject 微调 或 deleteObject 删除'],
+    }
+  }
   const pos = safeVec3(position)
   if (!pos) return { error: 'position 无效' }
   let mesh
@@ -969,16 +1737,16 @@ async function addComponent(editor, label, position, flyTo = false, onGround) {
     if (res.error) return res
     editor.transformControls.attach(mesh)
     if (flyTo) await flyToObject(editor, mesh, 0.3)
-    return { object: res.object, placed: { groundY: res.groundY, bottomY: res.bottomY } }
+    return attachComponentResult(design, { object: res.object, placed: { groundY: res.groundY, bottomY: res.bottomY } })
   }
   editor.transformControls.attach(mesh)
   if (flyTo) await flyToObject(editor, mesh, 0.3)
-  return { object: detail(mesh) }
+  return attachComponentResult(design, { object: detail(mesh) })
 }
 
 function addModel(editor, urlOrName, position = [0, 0, 0], flyTo = false, anim = {}, onGround = true) {
   const url = resolveModelUrl(urlOrName)
-  if (!url) return { error: `未找到模型「${urlOrName}」`, hint: '用 listCatalog 查可用模型' }
+  if (!url) return { error: `未找到模型「${urlOrName}」`, hint: '用 listResources 查可用模型' }
   const pos = safeVec3(position) || [0, 0, 0]
   return new Promise(resolve => {
     try {
@@ -1317,6 +2085,7 @@ function replaceGeometry(editor, { id, meshName, geometryType, params }) {
   return { object: detail(obj) }
 }
 
+// L2d · Three.js 原生（createMesh / setMaterial / 线点云 / 贴图 / 天空盒…）
 async function createMesh(editor, { geometryType, geometryParams, materialType, materialParams, position, rotation, name, parentId, onGround, flat, flyTo }) {
   const geo = buildNativeGeometry(geometryType, geometryParams)
   if (!geo) return { error: `未知几何体「${geometryType}」`, types: GEOMETRY_TYPES }
@@ -1901,6 +2670,7 @@ function setAnimationPlayParams(editor, input) {
   return { id: model.id, animationPlay: readAnimationPlayParams(model) }
 }
 
+// L2e · GLB/FBX 模型动画
 function listAnimations(editor, id) {
   if (id != null) {
     const model = findAnimRoot(editor.scene, id)
@@ -1964,22 +2734,7 @@ function stopModelAnimation(editor, { id }) {
   return { id: model.id, stopped: true, animationPlay: readAnimationPlayParams(model) }
 }
 
-const EDITOR_SETTING_KEYS = ['scene', 'perspectiveCamera', 'webglRenderer', 'orbitControls', 'transformControls', 'effectComposer', 'handler', 'other']
-const EFFECT_PASS_KEYS = new Set(['fxaaPass', 'outlinePass', 'outputPass', 'saoPass', 'screenMaskPass', 'ssrPass', 'unrealBloomPass'])
-const RENDER_WAYS = new Set(['effectComposer', 'webglRenderer'])
-const TC_MODES = new Set(['translate', 'rotate', 'scale'])
-const TC_SPACES = new Set(['world', 'local'])
-const HANDLER_MODES = new Set(['transform', 'select', 'none'])
-const OUTPUT_COLOR_SPACES = new Set(['srgb', 'srgb-linear', 'display-p3', 'linear-srgb'])
-const RENDER_LIST_NAMES = new Set(['stats', 'controls', 'scene', 'css3DRender', 'css2DRender'])
-const BASIC_PANELS = ['渲染配置', '相机配置', '轨道配置', '变换配置', '环境配置', '后期处理']
-const OBJECT_PANELS = {
-  basicConf: '基础配置',
-  materialConf: '材质配置',
-  shaderConf: '着色配置',
-  relatedConf: '相关配置',
-}
-
+// L2f · 编辑器配置 · GUI 面板 · 导出截图
 export function getEditorSettings(editor) {
   const saved = editor.saveSceneEdit?.()
   if (!saved) return { error: '编辑器未就绪' }
@@ -2401,63 +3156,7 @@ function getObjectBox3Info(editor, { id }) {
   }
 }
 
-export const SCENE_SYSTEM = `Three.js 场景编辑助手。Y 轴向上，地面 XZ 平面。
-
-【工作流 - 必须遵守】
-1. 不熟悉场景 → inspectScene 一次（含 spatial+对象摘要）
-2. 要加资源 → listCatalog 一次（含 routes 任务路由），禁止连环 listModels/listComponents
-3. 改已有对象 → getDetail(id) 一次；禁止 getDetail 后再 getObjectParams
-4. 贴地 → addMesh/addModel/addComponent 默认 onGround；改已有用 placeOnGround
-
-【场景元素理解 - 必须遵守】
-- 对象分 role：floor/light/component/model/mesh/group；inspectScene.objects 含 role+category
-- 不理解组件/元素 → getElementGuide（含分类目录+当前场景解读）；单个组件 → listComponentSchema(label)
-- 组件(component)：左侧面板 addComponent，有 params/uniforms → setObjectParams；勿当普通 Mesh 只改 color
-- 基础几何(mesh)：addMesh → setProps/setMaterial | 模型(model)：addModel → playAnimation
-- 地面(floor)：决定 recommendedGroundY；地面类组件用 addComponent onGround:true
-
-【构图与美学 - 生成/美化场景必遵守】
-- 用户要「漂亮/好看/完整/随机场景」→ 第一步 getCompositionGuide，选 1 组 palette，严格按 workflow 执行
-- 尺度：地面 50×50；hero 1 个 scale 0.8~1.5 近原点；装饰 3~5 个 scale 0.3~1.0；间距≥3；总物体≤12
-- 禁止：随机巨大 scale/position；5 种以上颜色；各物体 scale 差距>5 倍；|x|或|z|>20 散落
-- 配色：60-30-10 规则；setMaterial 用 palette 内 hex；background/fog/ground 同色系
-- 灯光：环境光(0.35)+平行光主光[5,8,5](1.0)+点光补光[-3,4,3](0.5)；主光开阴影
-- 构图：三角/对称/前景-主体-背景三选一；全部 onGround；完成后 focusView 检查
-
-【任务路由 - listCatalog.routes】
-编辑器便捷：加模型→addModel | 加组件→addComponent | 加几何→addMesh | 加灯→addLight
-Three.js 原生：createMesh/createBufferMesh | createGroup/reparentObject/cloneObject
-线点图元→addLine/addPoints | 材质贴图→setMaterial/applyTexture/replaceGeometry
-原生灯光→addNativeLight+setLightProps | 场景雾/底色→setSceneProps | 标签→addSprite
-3D字/着色器/GUI→runEditorAction | 未知→listEditorActions
-
-【Three.js 原生 - 与编辑器并列，优先于 runEditorAction】
-- 标准几何+参数 → createMesh（Capsule/Lathe/Tube 等见 listCatalog.threeJs）
-- 自定义顶点 → createBufferMesh | 大量副本 → createInstancedMesh(最多${MAX_INSTANCES})
-- 曲线管道 → addTubeMesh | 旋转体 → createLatheMesh
-- 几何后处理 → updateMeshGeometry(法线/居中/包围盒) | 线框 → addMeshWireframe
-- 层级 → createGroup / reparentObject(attach) / cloneObject / lookAt
-- 图元 → addLine / addPoints / addSprite
-- 材质 → setMaterial / replaceGeometry / applyTexture
-- 灯光 → addNativeLight(AmbientLight 等 API 名) + setLightProps(target/阴影)
-- 变换/可见 → setProps(position/rotation/scale/visible/castShadow)
-- 场景 → setSceneProps(background/fog)；六面 skybox 仍用 setSky/setEnv
-- 编辑器中文几何/组件/模型 → addMesh/addComponent/addModel（便捷封装，非原生 API）
-
-【安全】
-- 只改 inspectScene 中存在的 id；不可改相机/GridHelper/AxesHelper
-- setObjectParams 只写 getDetail.custom 已有键；error 时停止重试
-- loadScene/clearEditorCache 会替换或清空场景，用户未明确要求禁止调用
-
-【效率】
-- 简单任务 1-3 步；禁止连续 3+ 次只读工具
-- listObjects 最多 40 条；getGridInfo/getEditorSettings 仅在需要时用
-
-【能力覆盖】
-- 专用工具 ~65 个：场景/对象/模型/组件/Three.js 原生/GUI/导出/动画
-- runEditorAction ~${Object.keys(EDITOR_ACTIONS).length} 个：Cores GUI/Theatre/场景槽/裁剪/CSS/视角等
-- 完整粒子/三维地块等 → runEditorAction openCorePanel({ panel:"粒子物体"|"三维地块" })`
-
+// L2g · 场景查询 · 编排（listResources / inspectScene / buildScene）
 const vec3 = z.tuple([z.number(), z.number(), z.number()]).optional()
 const vec3req = z.tuple([z.number(), z.number(), z.number()])
 const profile2d = z.array(z.tuple([z.number(), z.number()])).min(2).max(MAX_CURVE_POINTS)
@@ -2523,178 +3222,101 @@ function buildElementCatalog(full = false) {
   const components = designs.map(d => {
     const meta = getComponentMeta(d)
     if (!byCategory[meta.category]) byCategory[meta.category] = { label: meta.categoryLabel, items: [] }
-    byCategory[meta.category].items.push(meta.label)
+    byCategory[meta.category].items.push(full ? meta : { label: meta.label, looksLike: meta.looksLike.slice(0, 56) })
     return full ? meta : meta.label
   })
   const base = {
     count: designs.length,
     meshUsage: MESH_USAGE,
     objectTypes: OBJECT_TYPES_GUIDE,
+    componentGuide: '流程：listResources({ label }) 了解 looksLike → addComponent 添加尝试 → editObject 微调',
     categories: Object.fromEntries(
       Object.entries(byCategory).map(([id, v]) => [id, { label: v.label, items: v.items }]),
     ),
   }
-  if (!full) return { guide: 'getElementGuide()', ...base }
+  if (!full) return base
   return { ...base, components }
 }
 
-function getElementGuide(editor) {
-  const catalog = buildElementCatalog(true)
-  const raw = collectObjects(editor, {})
-  const elements = raw.slice(0, LIST_CAP).map(o => {
-    const cls = classifySceneObject(o)
-    return {
-      id: o.id, name: o.name || '(未命名)',
-      role: cls.role, category: cls.category,
-      componentLabel: cls.componentLabel || null,
-      type: o.designType || o.type,
-      hint: cls.hint,
-    }
-  })
+export function listResources(editor, { label, query } = {}) {
+  if (label) return buildComponentDetail(editor, label)
+  if (query) return searchComponents(query)
+  const cat = buildElementCatalog(false)
   return {
-    purpose: '理解编辑器组件分类、场景元素角色及正确修改方式',
-    objectTypes: OBJECT_TYPES_GUIDE,
-    catalog,
-    scene: {
-      summary: summarizeObjects(raw),
-      elements,
-      truncated: raw.length > LIST_CAP,
-    },
-    workflows: {
-      理解现有场景: 'inspectScene → objects[].role/category → getDetail(id).custom',
-      选组件添加: 'catalog.categories 按类选 → listComponentSchema(label) → addComponent',
-      改组件参数: 'getDetail(id).custom.params/uniforms → setObjectParams',
-      改基础几何: 'setProps / setMaterial',
-      改模型动画: 'listAnimations → playAnimation',
-    },
-  }
-}
-
-const COLOR_PALETTES = [
-  { name: '黄昏暖调', background: '#1a1423', fog: '#2d3436', ground: '#4a4a4a', primary: '#e17055', secondary: '#636e72', accent: '#fdcb6e' },
-  { name: '森林清晨', background: '#dfe6e9', fog: '#b2bec3', ground: '#636e72', primary: '#00b894', secondary: '#55efc4', accent: '#fdcb6e' },
-  { name: '海洋暮色', background: '#0c2461', fog: '#1e3799', ground: '#487eb0', primary: '#4bcffa', secondary: '#0fbcf9', accent: '#f8c291' },
-  { name: '极简中性', background: '#f5f6fa', fog: '#dcdde1', ground: '#7f8fa6', primary: '#273c75', secondary: '#718093', accent: '#e1b12c' },
-  { name: '霓虹赛博', background: '#0a0a1a', fog: '#1a1a2e', ground: '#16213e', primary: '#e94560', secondary: '#0f3460', accent: '#00fff5' },
-]
-
-const COMPOSITION = {
-  groundSize: 50,
-  heroScale: [0.8, 1.5],
-  propScale: [0.3, 1],
-  maxHero: 1,
-  maxProps: 5,
-  maxTotal: 12,
-  playRadiusDefault: 12,
-  minSpacingDefault: 3,
-}
-
-function getCompositionGuide(editor) {
-  const spatial = getSpatialContext(editor)
-  const cell = spatial.grid?.cellSize ?? 1
-  const spacing = r(Math.max(COMPOSITION.minSpacingDefault, cell * 3))
-  const groundSize = spatial.grid?.size ?? COMPOSITION.groundSize
-  const playRadius = r(Math.min(groundSize / 4, COMPOSITION.playRadiusDefault))
-  return {
-    purpose: '生成或美化场景前先读本指南，避免尺寸杂乱与配色冲突',
-    spatial: {
-      groundY: spatial.axes.recommendedGroundY,
-      grid: spatial.grid,
-      playRadius,
-      spacing,
-      placement: `物体集中在 XZ [-${playRadius}, ${playRadius}]，相邻间距 ≥ ${spacing}`,
-    },
-    scale: {
-      ground: `${groundSize}×${groundSize} 正方形平面（addMesh 平面 size:${COMPOSITION.groundSize} flat onGround）`,
-      hero: `唯一主体 scale ${COMPOSITION.heroScale.join('~')}，position 近 [0, y, 0]`,
-      props: `装饰 ${COMPOSITION.maxProps} 个以内 scale ${COMPOSITION.propScale.join('~')}`,
-      forbid: '禁止 scale>3；禁止各物体 scale 差距>5 倍；禁止 |x|或|z|>20 的随机散落',
-    },
-    color: {
-      rule: '60-30-10：主色 dominant、辅色 secondary、accent 点缀≤10%；全场景可见主色≤3',
-      material: 'metalness 0.1~0.6，roughness 0.3~0.85；颜色取自 palette',
-      palettes: COLOR_PALETTES,
-    },
-    lighting: {
-      recipe: [
-        { type: '环境光', intensity: 0.35 },
-        { type: '平行光', position: [5, 8, 5], intensity: 1, castShadow: true },
-        { type: '点光源', position: [-3, 4, 3], intensity: 0.5, color: 'palette.accent' },
-      ],
-    },
-    layout: {
-      patterns: ['三角构图：hero 中心，props 等角 120° 分布', '对称：hero 居中，props 左右镜像', '前景-主体-背景：近小远大'],
-    },
-    workflow: [
-      '1. 选 1 组 palette',
-      '2. 地面：addMesh(平面, size:50, flat, onGround) 或 addComponent(网格地面)',
-      '3. setSceneProps(background/fog) 或 setSky+setEnv 同系列',
-      '4. 三连灯：环境光 + 平行光[5,8,5] + 点光[-3,4,3]',
-      '5. hero 1 个 + props 3~5 个，按 spacing 网格或三角构图摆放',
-      '6. setMaterial 统一 palette 色；placeOnGround 全部贴地',
-      '7. focusView 检查整体比例',
-    ],
-  }
-}
-
-function listCatalog() {
-  return {
-    models: listModels().slice(0, 30),
-    components: ThreeEditor.__DESIGNS__.map(d => d.label),
-    elements: buildElementCatalog(false),
+    meshes: Object.keys(MESH_USAGE),
     lights: LIGHT_TYPES,
-    meshes: Object.keys(MESH_TYPES),
+    components: cat.categories,
+    models: listModels().slice(0, 12).map(m => m.name),
     skies: SKIES.map(s => s.name),
-    scenes: listScenes().map(s => s.name),
-    cores: CORES_LIST.map(c => ({ name: c.name, label: c.label })),
-    threeJs: {
-      geometries: GEOMETRY_TYPES,
-      materials: MATERIAL_TYPES,
-      lightTypes: NATIVE_LIGHT_TYPES,
-      textureMaps: TEXTURE_MAPS,
-      sides: ['FrontSide', 'BackSide', 'DoubleSide'],
-      tools: NATIVE_TOOL_NAMES,
+    palettes: COLOR_PALETTES.map(p => p.name),
+    advancedTools: NATIVE_TOOL_NAMES.slice(0, 14),
+    tips: {
+      component: '流程：listResources({ label }) → addComponent → editObject；简单几何用 addMesh',
+      mesh: 'addMesh + editObject；立方体/球/柱/平面见 meshUsage',
+      scene: 'buildScene 一键搭建',
+      search: 'listResources({ query }) 搜组件，再 listResources({ label }) 查详情后才可 addComponent',
+      advanced: 'runAdvanced({ tool, input })',
     },
-    editor: {
-      basicPanels: BASIC_PANELS,
-      objectPanels: Object.keys(OBJECT_PANELS),
-      settingsSections: EDITOR_SETTING_KEYS,
-      handlerModes: [...HANDLER_MODES],
-      transformModes: [...TC_MODES],
-      actionCount: Object.keys(EDITOR_ACTIONS).length,
-    },
-    routes: {
-      看场景: 'inspectScene（含 role/category）',
-      查可添加资源: 'listCatalog（本工具）',
-      理解组件元素: 'getElementGuide → listComponentSchema(label)',
-      加模型: 'addModel({ urlOrName, onGround:true })',
-      加组件: 'addComponent({ type, onGround:true })',
-      加几何体: 'addMesh(中文) 或 createMesh/createBufferMesh(Three.js 类名/顶点)',
-      加灯光: 'addLight(中文) 或 addNativeLight(AmbientLight 等)',
-      加3D文字: 'runEditorAction({ action:"addText3D", params:{ text } })',
-      贴地: 'placeOnGround({ id })',
-      改属性: 'setProps / setObjectParams / setMaterial',
-      原生网格: 'createMesh / createBufferMesh / createInstancedMesh',
-      曲线旋转: 'addTubeMesh / createLatheMesh',
-      几何处理: 'updateMeshGeometry / addMeshWireframe / replaceGeometry',
-      原生层级: 'createGroup / reparentObject / cloneObject',
-      原生图元: 'addLine / addPoints / addSprite',
-      混合着色器: 'runEditorAction listBlendShaders → applyBlendShader',
-      打开GUI: 'openEditorPanel / openObjectPanel / runEditorAction openCorePanel',
-      撤销重做: 'undoEditor / redoEditor',
-      未知能力: 'listEditorActions → runEditorAction',
-      生成漂亮场景: 'getCompositionGuide → 按 workflow 逐步执行',
-    },
-    composition: {
-      guide: 'getCompositionGuide()',
-      palettes: COLOR_PALETTES.map(p => p.name),
-      scale: { ground: COMPOSITION.groundSize, hero: COMPOSITION.heroScale, prop: COMPOSITION.propScale, maxTotal: COMPOSITION.maxTotal },
-    },
-    hint: '优先 routes；理解组件用 getElementGuide；生成场景用 getCompositionGuide',
   }
 }
 
-function inspectScene(editor, { id, name, type, designType, deep, includeObjects = true } = {}) {
+export function getLiveContext(editor) {
+  if (!editor?.scene) return { ready: false }
+  const raw = collectObjects(editor, {})
+  const summary = summarizeObjects(raw)
+  const ground = detectGroundSurface(editor)
+  const sel = editor.transformControls?.object
+  const selected = sel && !isProtected(sel)
+    ? { id: sel.id, name: sel.name || '(未命名)', role: classifySceneObject(sel).role }
+    : null
+  const snapshot = raw.slice(0, 10).map(o => {
+    const c = classifySceneObject(o)
+    return `#${o.id} ${o.name || '(未命名)'}(${c.role})`
+  })
+  return { ready: true, count: summary.total, groundY: ground.y, roles: summary.byRole, selected, snapshot }
+}
+
+export async function buildScene(editor, { palette: paletteName } = {}) {
+  const palette = (paletteName && COLOR_PALETTES.find(p => p.name === paletteName))
+    || COLOR_PALETTES[Math.floor(Math.random() * COLOR_PALETTES.length)]
+  const created = []
+
+  const ground = await addMesh(editor, '平面', [0, 0, 0], palette.ground, '地面', false, { size: 50, onGround: true, flat: true })
+  if (ground.error) return ground
+  created.push({ role: 'ground', id: ground.object?.id })
+
+  setSceneProps(editor, { background: palette.background, fog: { color: palette.fog, near: 8, far: 60 } })
+
+  const amb = addLight(editor, '环境光', [0, 3, 0])
+  if (amb.object?.id) setProps(editor, { id: amb.object.id, intensity: 0.35 })
+  const key = addLight(editor, '平行光', [5, 8, 5])
+  if (key.object?.id) setProps(editor, { id: key.object.id, intensity: 1, castShadow: true })
+  const fill = addLight(editor, '点光源', [-3, 4, 3])
+  if (fill.object?.id) setProps(editor, { id: fill.object.id, intensity: 0.5, color: palette.accent })
+
+  const hero = await addMesh(editor, '球体', [0, 0, 0], palette.primary, '主体', false, { onGround: true })
+  if (hero.object?.id) {
+    setProps(editor, { id: hero.object.id, scale: [1, 1, 1] })
+    created.push({ role: 'hero', id: hero.object.id })
+  }
+
+  for (const p of [
+    { type: '二十面体', pos: [3, 0, 0], color: palette.secondary, scale: 0.55 },
+    { type: '圆环', pos: [-2.5, 0, 2], color: palette.accent, scale: 0.7 },
+    { type: '圆柱', pos: [0, 0, -3.5], color: palette.secondary, scale: [0.4, 0.8, 0.4] },
+  ]) {
+    const m = await addMesh(editor, p.type, p.pos, p.color, p.type, false, { onGround: true })
+    if (m.object?.id) {
+      setProps(editor, { id: m.object.id, scale: p.scale })
+      created.push({ role: 'prop', id: m.object.id, type: p.type })
+    }
+  }
+
+  await focusView(editor, [8, 6, 8], [0, 1, 0], 0.8)
+  return { palette: palette.name, created, message: '已搭建地面、雾效、三连灯与主体装饰，可按需微调' }
+}
+
+export function inspectScene(editor, { id, name, type, designType, deep, includeObjects = true } = {}) {
   const out = {
     selectedId: editor.transformControls.object?.id ?? null,
     spatial: getSpatialContext(editor, id),
@@ -2708,12 +3330,6 @@ function inspectScene(editor, { id, name, type, designType, deep, includeObjects
   out.summary = summarizeObjects(raw)
   out.objects = raw.slice(0, LIST_CAP).map(brief)
   if (raw.length > LIST_CAP) out.truncated = true
-  if (out.summary.total < 5) {
-    out.compositionHint = '场景较空，生成前请 getCompositionGuide 选 palette 与 scale 规则'
-  }
-  if (out.summary.designs > 0 || out.summary.total > 0) {
-    out.elementHint = 'objects 含 role/category；详查组件用 getElementGuide 或 listComponentSchema'
-  }
   return out
 }
 
@@ -2721,110 +3337,32 @@ export function listObjects(editor, opts = {}) {
   return collectObjects(editor, opts).map(brief)
 }
 
-export function createSceneTools(editor) {
+// L3 · 全量 AI 工具（60+，Zod 参数校验；日常经 runAdvanced 或 createSceneTools 间接调用）
+const _toolsCache = new WeakMap()
+function allSceneTools(editor) {
+  let t = _toolsCache.get(editor)
+  if (!t) { t = createAllSceneTools(editor); _toolsCache.set(editor, t) }
+  return t
+}
+
+function createAllSceneTools(editor) {
   return {
-    inspectScene: guardTool({
-      description: '【首选】场景+空间+对象摘要（含 role/category 元素角色）。替代 listObjects+getSpatialContext',
-      inputSchema: z.object({
-        id: z.number().optional().describe('可选，同时返回该对象完整 detail'),
-        name: z.string().optional().describe('按名称过滤对象列表'),
-        type: z.string().optional().describe('按类型过滤'),
-        designType: z.string().optional().describe('按组件 designType 过滤'),
-        deep: z.boolean().optional().describe('递归列出子对象'),
-        includeObjects: z.boolean().optional().describe('是否含对象列表，默认 true'),
-      }),
-      execute: (input) => inspectScene(editor, input),
-    }),
-    listCatalog: guardTool({
-      description: '【首选】资源目录+elements 组件分类摘要+composition。替代 listModels/listComponents 等',
-      inputSchema: z.object({}),
-      execute: () => listCatalog(),
-    }),
-    getElementGuide: guardTool({
-      description: '【理解组件/元素首选】组件分类目录、对象类型说明、当前场景元素解读与修改 workflow',
-      inputSchema: z.object({}),
-      execute: () => getElementGuide(editor),
-    }),
-    getCompositionGuide: guardTool({
-      description: '【生成漂亮场景首选】返回尺度/配色 palette/灯光/构图 workflow。用户要好看/完整/随机场景时第一步调用',
-      inputSchema: z.object({}),
-      execute: () => getCompositionGuide(editor),
-    }),
-    listObjects: guardTool({
-      description: '列出场景对象(最多40)。优先用 inspectScene；大场景用 name/type 过滤',
-      inputSchema: z.object({
-        deep: z.boolean().optional().describe('是否递归列出子对象'),
-        name: z.string().optional().describe('名称包含匹配'),
-        type: z.string().optional().describe('类型匹配，如 Mesh、AmbientLight、isLight'),
-        designType: z.string().optional().describe('组件 designType 过滤'),
-        lightsOnly: z.boolean().optional().describe('仅返回灯光'),
-      }),
-      execute: (input) => {
-        const all = listObjects(editor, input)
-        const cap = LIST_CAP
-        return {
-          selectedId: editor.transformControls.object?.id ?? null,
-          objects: all.slice(0, cap),
-          ...(all.length > cap ? { truncated: true, total: all.length, hint: '用 name/type 缩小范围' } : {}),
-        }
-      },
-    }),
-    getSelected: guardTool({
-      description: '获取当前选中对象完整空间属性（世界坐标、包围盒、尺寸等）',
-      inputSchema: z.object({}),
-      execute: () => {
-        const o = editor.transformControls.object
-        return o ? { object: detail(o, { children: true }) } : { error: '未选中对象' }
-      },
-    }),
-    getGridInfo: guardTool({
-      description: '网格参数；默认不含交点(省 token)，需网格对齐时 includePoints:true',
-      inputSchema: z.object({
-        includePoints: z.boolean().optional().describe('返回网格交点坐标，默认 false'),
-      }),
-      execute: ({ includePoints }) => getGridInfo(editor, !!includePoints),
-    }),
-    getSpatialContext: guardTool({
-      description: '空间上下文：地面高度、已有地面列表、网格、可选单物体 gapToGround。放置/贴地前优先调用',
-      inputSchema: z.object({
-        id: z.number().optional().describe('可选，分析该物体与地面的距离'),
-      }),
-      execute: ({ id }) => getSpatialContext(editor, id),
-    }),
-    placeOnGround: guardTool({
-      description: '将物体底面贴到地面。自动算 y；平面可 flat:true 放平',
-      inputSchema: z.object({
+    placeOnGround: mk('将物体底面贴到地面。自动算 y；平面可 flat:true 放平', z.object({
         id: z.number(),
         groundY: z.number().optional().describe('目标地面高度，默认取 getSpatialContext.recommendedGroundY'),
         flat: z.boolean().optional().describe('PlaneGeometry 放平为 XZ 地面，rotation [-90,0,0]'),
         x: z.number().optional(),
         z: z.number().optional(),
         refId: z.number().optional().describe('参考另一物体顶面作为 groundY'),
-      }),
-      execute: (input) => placeOnGround(editor, input),
-    }),
-    getDetail: guardTool({
-      description: '获取对象完整属性：空间信息 + custom(params/uniforms/materials)',
-      inputSchema: z.object({
+      }), (input) => placeOnGround(editor, input)),
+    getDetail: mk('获取对象完整属性：空间信息 + custom(params/uniforms/materials)', z.object({
         id: z.number(),
         children: z.boolean().optional().describe('是否包含直接子节点列表'),
-      }),
-      execute: ({ id, children }) => {
+      }), ({ id, children }) => {
         const o = find(editor.scene, id)
         return o ? { object: detail(o, { children: !!children }) } : { error: `未找到 id=${id}` }
-      },
-    }),
-    getObjectParams: guardTool({
-      description: '仅当 getDetail.custom 不够用时读取 params/uniforms。改参直接用 setObjectParams',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => {
-        const o = find(editor.scene, id)
-        return o ? { id, name: o.name || '(未命名)', custom: readCustomProps(o) } : { error: `未找到 id=${id}` }
-      },
-    }),
-    setObjectParams: guardTool({
-      description: '修改组件 params/uniforms/material。组件会走 setStorage 与 GUI 一致',
-      inputSchema: z.object({
+      }),
+    setObjectParams: mk('修改组件 params/uniforms/material。组件会走 setStorage 与 GUI 一致', z.object({
         id: z.number(),
         params: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional()
           .describe('组件 params，如 count/speed/size/gridColor'),
@@ -2836,24 +3374,12 @@ export function createSceneTools(editor) {
           color: z.string().optional(), opacity: z.number().optional(),
           metalness: z.number().optional(), roughness: z.number().optional(), emissive: z.string().optional(),
         }).optional()).optional().describe('标准材质，key 为 self 或子 mesh 名称'),
-      }),
-      execute: (input) => setObjectParams(editor, input),
-    }),
-    listComponentSchema: guardTool({
-      description: '单个组件详情：分类、keyParams、defaults、添加/修改方式。type 来自 listCatalog.elements 或 getElementGuide',
-      inputSchema: z.object({ label: z.string().describe('组件 label，如 网格地面、柱状图') }),
-      execute: ({ label }) => listComponentSchema(label),
-    }),
-    listAnimations: guardTool({
-      description: '列出 GLB/FBX 模型自带动画 clips；不传 id 则扫描场景中所有含动画的模型',
-      inputSchema: z.object({
+      }), (input) => setObjectParams(editor, input)),
+    listComponentSchema: mk('单个组件详情（等同 listResources({ label })，查阅后才可 addComponent）', z.object({ label: z.string().describe('组件 label，如 网格地面、柱状图') }), ({ label }) => buildComponentDetail(editor, label)),
+    listAnimations: mk('列出 GLB/FBX 模型自带动画 clips；不传 id 则扫描场景中所有含动画的模型', z.object({
         id: z.number().optional().describe('模型对象 id，来自 listObjects'),
-      }),
-      execute: ({ id }) => listAnimations(editor, id),
-    }),
-    playAnimation: guardTool({
-      description: '播放模型自带动画。用 index/indices 或 name/names 指定 clip',
-      inputSchema: z.object({
+      }), ({ id }) => listAnimations(editor, id)),
+    playAnimation: mk('播放模型自带动画。用 index/indices 或 name/names 指定 clip', z.object({
         id: z.number(),
         index: z.number().int().min(0).optional().describe('单个动画索引，来自 listAnimations'),
         indices: z.array(z.number().int().min(0)).optional().describe('多个动画索引'),
@@ -2862,17 +3388,9 @@ export function createSceneTools(editor) {
         loop: z.boolean().optional().describe('是否循环，默认 true'),
         speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
         startTime: z.number().min(0).max(10000).optional().describe('起始时间(秒)，默认 0'),
-      }),
-      execute: (input) => playModelAnimation(editor, input),
-    }),
-    stopAnimation: guardTool({
-      description: '停止模型自带动画播放',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => stopModelAnimation(editor, { id }),
-    }),
-    setAnimationPlayParams: guardTool({
-      description: '设置模型 animationPlayParams（初始加载播放、速度、循环、选中 clips），与编辑器动画面板一致',
-      inputSchema: z.object({
+      }), (input) => playModelAnimation(editor, input)),
+    stopAnimation: mk('停止模型自带动画播放', z.object({ id: z.number() }), ({ id }) => stopModelAnimation(editor, { id })),
+    setAnimationPlayParams: mk('设置模型 animationPlayParams（初始加载播放、速度、循环、选中 clips），与编辑器动画面板一致', z.object({
         id: z.number(),
         initPlay: z.boolean().optional().describe('初始/自动播放开关'),
         speed: z.number().min(-10).max(10).optional(),
@@ -2883,113 +3401,42 @@ export function createSceneTools(editor) {
         indices: z.array(z.number().int().min(0)).optional(),
         name: z.string().optional(),
         names: z.array(z.string()).optional(),
-      }),
-      execute: (input) => setAnimationPlayParams(editor, input),
-    }),
-    getCamera: guardTool({
-      description: '获取当前相机位置和观察目标',
-      inputSchema: z.object({}),
-      execute: () => ({ position: v3(editor.camera.position), target: v3(editor.controls.target) }),
-    }),
-    getEditorApi: guardTool({
-      description: 'ThreeEditor 实例能力图谱：属性/方法/panelApi/lib/专用工具映射；全量 action 见 listEditorActions',
-      inputSchema: z.object({}),
-      execute: () => getEditorApi(editor),
-    }),
-    listEditorActions: guardTool({
-      description: '【兜底目录】列出 runEditorAction 全部 action：Cores GUI/Theatre/场景槽/裁剪/CSS标签/视角记录等',
-      inputSchema: z.object({}),
-      execute: () => listEditorActions(),
-    }),
-    runEditorAction: guardTool({
-      description: '执行 listEditorActions 中的任意 action，覆盖编辑器尚未专用工具化的能力',
-      inputSchema: z.object({
+      }), (input) => setAnimationPlayParams(editor, input)),
+    runEditorAction: mk('执行 listEditorActions 中的任意 action，覆盖编辑器尚未专用工具化的能力', z.object({
         action: z.string().describe('action 名，来自 listEditorActions'),
         params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))])).optional(),
-      }),
-      execute: ({ action, params }) => runEditorAction(editor, { action, params: params || {} }),
-    }),
-    openEditorPanel: guardTool({
-      description: '打开编辑器 GUI 浮动窗。panel=渲染配置|相机配置|轨道配置|变换配置|环境配置|后期处理；不传 panel 则打开控制板',
-      inputSchema: z.object({
+      }), ({ action, params }) => runEditorAction(editor, { action, params: params || {} })),
+    openEditorPanel: mk('打开编辑器 GUI 浮动窗。panel=渲染配置|相机配置|轨道配置|变换配置|环境配置|后期处理；不传 panel 则打开控制板', z.object({
         panel: z.enum(BASIC_PANELS).optional().describe('子配置窗名称，如 渲染配置'),
         openMain: z.boolean().optional().describe('是否同时打开控制板四宫格，默认 true'),
-      }),
-      execute: (input) => openEditorPanel(editor, input),
-    }),
-    openObjectPanel: guardTool({
-      description: '打开选中对象的 GUI 配置窗（等同右键菜单）：basicConf/materialConf/shaderConf/relatedConf',
-      inputSchema: z.object({
+      }), (input) => openEditorPanel(editor, input)),
+    openObjectPanel: mk('打开选中对象的 GUI 配置窗（等同右键菜单）：basicConf/materialConf/shaderConf/relatedConf', z.object({
         id: z.number(),
         panel: z.enum(Object.keys(OBJECT_PANELS)).optional().describe('默认 materialConf'),
-      }),
-      execute: ({ id, panel }) => openObjectPanel(editor, { id, panel: panel || 'materialConf' }),
-    }),
-    setEditorMode: guardTool({
-      description: '切换编辑器交互模式：handlerMode(transform/select/none)、transformMode(translate/rotate/scale)、preview 预览',
-      inputSchema: z.object({
+      }), ({ id, panel }) => openObjectPanel(editor, { id, panel: panel || 'materialConf' })),
+    setEditorMode: mk('切换编辑器交互模式：handlerMode(transform/select/none)、transformMode(translate/rotate/scale)、preview 预览', z.object({
         handlerMode: z.enum([...HANDLER_MODES]).optional(),
         transformMode: z.enum([...TC_MODES]).optional(),
         preview: z.boolean().optional().describe('true 时 handler.mode=none（不折叠侧栏）'),
-      }),
-      execute: (input) => setEditorMode(editor, input),
-    }),
-    undoEditor: guardTool({
-      description: '撤销上一步变换操作（等同 Ctrl+Z）',
-      inputSchema: z.object({}),
-      execute: () => undoEditor(editor),
-    }),
-    redoEditor: guardTool({
-      description: '重做变换操作（等同 Ctrl+Y）',
-      inputSchema: z.object({}),
-      execute: () => redoEditor(editor),
-    }),
-    saveEditorScene: guardTool({
-      description: '保存当前场景到 localStorage（等同顶部「保存」）',
-      inputSchema: z.object({
+      }), (input) => setEditorMode(editor, input)),
+    undoEditor: mk('撤销上一步变换操作（等同 Ctrl+Z）', z.object({}), () => undoEditor(editor)),
+    redoEditor: mk('重做变换操作（等同 Ctrl+Y）', z.object({}), () => redoEditor(editor)),
+    saveEditorScene: mk('保存当前场景到 localStorage（等同顶部「保存」）', z.object({
         sceneName: z.string().optional().describe('场景名，默认当前场景'),
-      }),
-      execute: (input) => saveEditorScene(editor, input),
-    }),
-    captureScreenshot: guardTool({
-      description: '截取当前视口 PNG（等同相机按钮），默认自动下载',
-      inputSchema: z.object({
+      }), (input) => saveEditorScene(editor, input)),
+    captureScreenshot: mk('截取当前视口 PNG（等同相机按钮），默认自动下载', z.object({
         download: z.boolean().optional().describe('默认 true'),
         quality: z.number().min(0.1).max(1).optional(),
-      }),
-      execute: (input) => captureScreenshot(editor, input),
-    }),
-    exportSceneJson: guardTool({
-      description: '导出 saveSceneEdit JSON 模板文件',
-      inputSchema: z.object({
+      }), (input) => captureScreenshot(editor, input)),
+    exportSceneJson: mk('导出 saveSceneEdit JSON 模板文件', z.object({
         download: z.boolean().optional(),
         sceneName: z.string().optional(),
-      }),
-      execute: (input) => exportSceneJson(editor, input),
-    }),
-    exportSceneGlb: guardTool({
-      description: '导出场景可见模型为 GLB 文件',
-      inputSchema: z.object({ sceneName: z.string().optional() }),
-      execute: (input) => exportSceneGlb(editor, input),
-    }),
-    getObjectBox3Info: guardTool({
-      description: 'lib.getObjectBox3：精确包围盒 center/radius/min/max',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => getObjectBox3Info(editor, { id }),
-    }),
-    getObjectMaterials: guardTool({
-      description: 'lib.getMaterials：列出对象及子节点上的材质摘要',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => getObjectMaterials(editor, { id }),
-    }),
-    getEditorSettings: guardTool({
-      description: '读取 saveSceneEdit 持久化配置。runtime 状态用 getEditorApi',
-      inputSchema: z.object({}),
-      execute: () => getEditorSettings(editor),
-    }),
-    setEditorSettings: guardTool({
-      description: '修改 saveSceneEdit 配置段。改渲染器数值无需 openEditorPanel；要弹 GUI 用 openEditorPanel({ panel:"渲染配置" })',
-      inputSchema: z.object({
+      }), (input) => exportSceneJson(editor, input)),
+    exportSceneGlb: mk('导出场景可见模型为 GLB 文件', z.object({ sceneName: z.string().optional() }), (input) => exportSceneGlb(editor, input)),
+    getObjectBox3Info: mk('lib.getObjectBox3：精确包围盒 center/radius/min/max', z.object({ id: z.number() }), ({ id }) => getObjectBox3Info(editor, { id })),
+    getObjectMaterials: mk('lib.getMaterials：列出对象及子节点上的材质摘要', z.object({ id: z.number() }), ({ id }) => getObjectMaterials(editor, { id })),
+    getEditorSettings: mk('读取 saveSceneEdit 持久化配置。runtime 状态用 getEditorApi', z.object({}), () => getEditorSettings(editor)),
+    setEditorSettings: mk('修改 saveSceneEdit 配置段。改渲染器数值无需 openEditorPanel；要弹 GUI 用 openEditorPanel({ panel:"渲染配置" })', z.object({
         scene: z.object({
           backgroundBlurriness: z.number().min(0).max(1).optional(),
           backgroundIntensity: z.number().min(0).max(10).optional(),
@@ -3088,12 +3535,8 @@ export function createSceneTools(editor) {
         other: z.object({
           clipping: z.object({ size: z.number().min(0.1).max(1000).optional() }).optional(),
         }).optional(),
-      }),
-      execute: (input) => setEditorSettings(editor, input),
-    }),
-    setProps: guardTool({
-      description: '修改对象属性（含灯光 intensity、阴影、renderOrder）',
-      inputSchema: z.object({
+      }), (input) => setEditorSettings(editor, input)),
+    setProps: mk('修改对象属性（含灯光 intensity、阴影、renderOrder）', z.object({
         id: z.number(), name: z.string().optional(), visible: z.boolean().optional(),
         position: vec3flex, rotation: vec3, scale: vec3,
         color: z.string().optional(), opacity: z.number().min(0).max(1).optional(),
@@ -3101,28 +3544,11 @@ export function createSceneTools(editor) {
         castShadow: z.boolean().optional(),
         receiveShadow: z.boolean().optional(),
         renderOrder: z.number().int().min(-1000).max(1000).optional(),
-      }),
-      execute: (input) => setProps(editor, input),
-    }),
-    selectObject: guardTool({
-      description: '选中对象，不移动相机',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => selectObject(editor, id),
-    }),
-    deleteObject: guardTool({
-      description: '从场景删除对象并 dispose 几何/材质/纹理',
-      inputSchema: z.object({ id: z.number() }),
-      execute: ({ id }) => deleteObject(editor, id),
-    }),
-    listModels: guardTool({
-      description: '列出 GLB/FBX 模型。优先用 listCatalog',
-      inputSchema: z.object({}),
-      execute: () => ({ models: listModels() }),
-    }),
-    addModel: guardTool({
-      description: '加载 GLB/FBX 模型。默认贴地(onGround)且不自飞(flyTo)。可设 initPlay/index 自动播放动画',
-      inputSchema: z.object({
-        urlOrName: z.string().describe('模型 URL 或文件名，来自 listCatalog'),
+      }), (input) => setProps(editor, input)),
+    selectObject: mk('选中对象，不移动相机', z.object({ id: z.number() }), ({ id }) => selectObject(editor, id)),
+    deleteObject: mk('从场景删除对象并 dispose 几何/材质/纹理', z.object({ id: z.number() }), ({ id }) => deleteObject(editor, id)),
+    addModel: mk('加载 GLB/FBX 模型。默认贴地(onGround)且不自飞(flyTo)。可设 initPlay/index 自动播放动画', z.object({
+        urlOrName: z.string().describe('模型 URL 或文件名，来自 listResources'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         flyTo: z.boolean().optional().describe('加载后飞过去，默认 false'),
         onGround: z.boolean().optional().describe('加载后自动贴地，默认 true'),
@@ -3131,46 +3557,19 @@ export function createSceneTools(editor) {
         indices: z.array(z.number().int().min(0)).optional(),
         loop: z.boolean().optional().describe('是否循环，默认 true'),
         speed: z.number().min(-10).max(10).optional().describe('播放速度，默认 1'),
-      }),
-      execute: ({ urlOrName, position, flyTo, onGround, initPlay, index, indices, loop, speed }) =>
-        addModel(editor, urlOrName, position ?? [0, 0, 0], !!flyTo, { initPlay, index, indices, loop, speed }, onGround !== false),
-    }),
-    listComponents: guardTool({
-      description: '列出可添加组件。优先用 listCatalog',
-      inputSchema: z.object({}),
-      execute: () => ({ components: ThreeEditor.__DESIGNS__.map(d => d.label) }),
-    }),
-    addComponent: guardTool({
-      description: '添加组件。地面类(网格地面/科技地面等)自动贴地；可 onGround:false 关闭',
-      inputSchema: z.object({
-        label: z.string().describe('组件名，来自 listCatalog'),
+      }), ({ urlOrName, position, flyTo, onGround, initPlay, index, indices, loop, speed }) =>
+        addModel(editor, urlOrName, position ?? [0, 0, 0], !!flyTo, { initPlay, index, indices, loop, speed }, onGround !== false)),
+    addComponent: mk('添加组件到场景尝试。须先 listResources({ label }) 查阅；添加后 editObject 微调', z.object({
+        label: z.string().describe('已查阅过的组件 label'),
         position: vec3req,
         flyTo: z.boolean().optional(),
         onGround: z.boolean().optional().describe('自动贴地，地面类默认 true'),
-      }),
-      execute: ({ label, position, flyTo, onGround }) => addComponent(editor, label, position, !!flyTo, onGround),
-    }),
-    listLights: guardTool({
-      description: '列出可添加的灯光类型',
-      inputSchema: z.object({}),
-      execute: () => ({ types: LIGHT_TYPES }),
-    }),
-    addLight: guardTool({
-      description: '添加灯光',
-      inputSchema: z.object({
+      }), ({ label, position, flyTo, onGround }) => addComponent(editor, label, position, !!flyTo, onGround)),
+    addLight: mk('添加灯光', z.object({
         type: z.enum(LIGHT_TYPES), position: vec3.describe('默认 [0,5,0]'),
-      }),
-      execute: ({ type, position }) => addLight(editor, type, position ?? [0, 5, 0]),
-    }),
-    listMeshes: guardTool({
-      description: '列出基础几何体类型。优先用 listCatalog',
-      inputSchema: z.object({}),
-      execute: () => ({ types: Object.keys(MESH_TYPES) }),
-    }),
-    addMesh: guardTool({
-      description: '添加基础几何体。地面: type=平面 + onGround + flat + size(默认跟网格)',
-      inputSchema: z.object({
-        type: z.enum(Object.keys(MESH_TYPES)).describe('几何体类型，来自 listMeshes'),
+      }), ({ type, position }) => addLight(editor, type, position ?? [0, 5, 0])),
+    addMesh: mk('添加基础几何体。地面: type=平面 + onGround + flat + size(默认跟网格)', z.object({
+        type: z.enum(Object.keys(MESH_TYPES)).describe('几何体类型，来自 listResources'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         color: z.string().optional().describe('颜色，默认 #ffffff'),
         name: z.string().optional().describe('对象名称'),
@@ -3179,61 +3578,37 @@ export function createSceneTools(editor) {
         onGround: z.boolean().optional().describe('添加后自动贴地'),
         flat: z.boolean().optional().describe('PlaneGeometry 放平，等同 placeOnGround(flat:true)'),
         flyTo: z.boolean().optional(),
-      }),
-      execute: ({ type, position, color, name, size, rotation, onGround, flat, flyTo }) =>
-        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, !!flyTo, { size, rotation, onGround, flat }),
-    }),
-    addMeshes: guardTool({
-      description: '批量添加几何体，适合网格交点批量放置（最多 50 个）',
-      inputSchema: z.object({
+      }), ({ type, position, color, name, size, rotation, onGround, flat, flyTo }) =>
+        addMesh(editor, type, position ?? [0, 0, 0], color ?? '#ffffff', name, !!flyTo, { size, rotation, onGround, flat })),
+    addMeshes: mk('批量添加几何体，适合网格交点批量放置（最多 50 个）', z.object({
         items: z.array(z.object({
           type: z.enum(Object.keys(MESH_TYPES)),
           position: vec3req,
           color: z.string().optional(),
           name: z.string().optional(),
         })).min(1).max(50),
-      }),
-      execute: ({ items }) => addMeshes(editor, items),
-    }),
-    createGroup: guardTool({
-      description: 'Three.js 原生：创建 Group 容器，可指定 parentId 挂到已有节点下',
-      inputSchema: z.object({
+      }), ({ items }) => addMeshes(editor, items)),
+    createGroup: mk('Three.js 原生：创建 Group 容器，可指定 parentId 挂到已有节点下', z.object({
         name: z.string().optional(),
         position: vec3,
         parentId: z.number().optional().describe('父节点 id，默认加到 scene 根'),
-      }),
-      execute: (input) => createGroup(editor, input),
-    }),
-    reparentObject: guardTool({
-      description: 'Three.js 原生：改变父节点，Object3D.attach 保持世界变换不变',
-      inputSchema: z.object({
+      }), (input) => createGroup(editor, input)),
+    reparentObject: mk('Three.js 原生：改变父节点，Object3D.attach 保持世界变换不变', z.object({
         id: z.number(),
         parentId: z.number().nullable().optional().describe('新父 id，null/省略=移到 scene 根'),
-      }),
-      execute: ({ id, parentId }) => reparentObject(editor, { id, parentId: parentId ?? null }),
-    }),
-    cloneObject: guardTool({
-      description: 'Three.js 原生：深拷贝对象(含子节点/几何/材质)，可指定新位置与父节点',
-      inputSchema: z.object({
+      }), ({ id, parentId }) => reparentObject(editor, { id, parentId: parentId ?? null })),
+    cloneObject: mk('Three.js 原生：深拷贝对象(含子节点/几何/材质)，可指定新位置与父节点', z.object({
         id: z.number(),
         name: z.string().optional(),
         position: vec3flex,
         parentId: z.number().optional(),
-      }),
-      execute: (input) => cloneObject(editor, input),
-    }),
-    lookAt: guardTool({
-      description: 'Three.js 原生：Object3D.lookAt，使 -Z 轴指向目标点或目标对象',
-      inputSchema: z.object({
+      }), (input) => cloneObject(editor, input)),
+    lookAt: mk('Three.js 原生：Object3D.lookAt，使 -Z 轴指向目标点或目标对象', z.object({
         id: z.number(),
         target: vec3flex.describe('世界坐标目标点'),
         targetId: z.number().optional().describe('或指向某对象的世界位置'),
-      }),
-      execute: (input) => lookAtObject(editor, input),
-    }),
-    createMesh: guardTool({
-      description: 'Three.js 原生：用 geometryType/materialType 类名创建 Mesh，比 addMesh 更灵活',
-      inputSchema: z.object({
+      }), (input) => lookAtObject(editor, input)),
+    createMesh: mk('Three.js 原生：用 geometryType/materialType 类名创建 Mesh，比 addMesh 更灵活', z.object({
         geometryType: z.enum(GEOMETRY_TYPES),
         geometryParams: geoParams.describe('数值参数；LatheGeometry.points=[[x,y],...]；TubeGeometry.points=[[x,y,z],...]'),
         materialType: z.enum(MATERIAL_TYPES).optional().describe('默认 MeshStandardMaterial'),
@@ -3241,12 +3616,8 @@ export function createSceneTools(editor) {
         position: vec3, rotation: vec3, name: z.string().optional(),
         parentId: z.number().optional(),
         onGround: z.boolean().optional(), flat: z.boolean().optional(), flyTo: z.boolean().optional(),
-      }),
-      execute: (input) => createMesh(editor, input),
-    }),
-    setMaterial: guardTool({
-      description: 'Three.js 原生：切换材质类型或改 wireframe/side/metalness 等 PBR 属性',
-      inputSchema: z.object({
+      }), (input) => createMesh(editor, input)),
+    setMaterial: mk('Three.js 原生：切换材质类型或改 wireframe/side/metalness 等 PBR 属性', z.object({
         id: z.number(),
         meshName: z.string().optional().describe('Group 内子 mesh 名称'),
         materialType: z.enum(MATERIAL_TYPES).optional().describe('传入则整体替换材质'),
@@ -3258,43 +3629,27 @@ export function createSceneTools(editor) {
         flatShading: z.boolean().optional(),
         vertexColors: z.boolean().optional(),
         side: z.union([z.enum(['FrontSide', 'BackSide', 'DoubleSide']), z.number().int().min(0).max(2)]).optional(),
-      }),
-      execute: (input) => setMaterial(editor, input),
-    }),
-    replaceGeometry: guardTool({
-      description: 'Three.js 原生：替换 Mesh 几何体(释放旧 geometry)，用 Three.js Geometry 类名+参数',
-      inputSchema: z.object({
+      }), (input) => setMaterial(editor, input)),
+    replaceGeometry: mk('Three.js 原生：替换 Mesh 几何体(释放旧 geometry)，用 Three.js Geometry 类名+参数', z.object({
         id: z.number(),
         meshName: z.string().optional(),
         geometryType: z.enum(GEOMETRY_TYPES),
         params: geoParams,
-      }),
-      execute: ({ id, meshName, geometryType, params }) => replaceGeometry(editor, { id, meshName, geometryType, params }),
-    }),
-    addLine: guardTool({
-      description: 'Three.js 原生：BufferGeometry + Line/LineLoop，points 为 [[x,y,z],...]',
-      inputSchema: z.object({
+      }), ({ id, meshName, geometryType, params }) => replaceGeometry(editor, { id, meshName, geometryType, params })),
+    addLine: mk('Three.js 原生：BufferGeometry + Line/LineLoop，points 为 [[x,y,z],...]', z.object({
         points: z.array(vec3req).min(2).max(500),
         color: z.string().optional(),
         name: z.string().optional(),
         closed: z.boolean().optional().describe('true 时用 LineLoop'),
         linewidth: z.number().min(1).max(10).optional(),
-      }),
-      execute: (input) => addLine(editor, input),
-    }),
-    addPoints: guardTool({
-      description: 'Three.js 原生：点云 Points + PointsMaterial',
-      inputSchema: z.object({
+      }), (input) => addLine(editor, input)),
+    addPoints: mk('Three.js 原生：点云 Points + PointsMaterial', z.object({
         points: z.array(vec3req).min(1).max(5000),
         color: z.string().optional(),
         size: z.number().min(0.01).max(50).optional(),
         name: z.string().optional(),
-      }),
-      execute: (input) => addPoints(editor, input),
-    }),
-    setSceneProps: guardTool({
-      description: 'Three.js 原生：scene.background 纯色、scene.fog(Fog/FogExp2)，与 setSky 互补',
-      inputSchema: z.object({
+      }), (input) => addPoints(editor, input)),
+    setSceneProps: mk('Three.js 原生：scene.background 纯色、scene.fog(Fog/FogExp2)，与 setSky 互补', z.object({
         background: z.union([z.string(), z.null()]).optional().describe('#rrggbb 或 null 清除'),
         fog: z.union([
           z.null(),
@@ -3306,22 +3661,14 @@ export function createSceneTools(editor) {
             density: z.number().optional(),
           }),
         ]).optional(),
-      }),
-      execute: (input) => setSceneProps(editor, input),
-    }),
-    applyTexture: guardTool({
-      description: 'Three.js 原生：TextureLoader 加载远程贴图并赋给 material.map 等通道',
-      inputSchema: z.object({
+      }), (input) => setSceneProps(editor, input)),
+    applyTexture: mk('Three.js 原生：TextureLoader 加载远程贴图并赋给 material.map 等通道', z.object({
         id: z.number(),
         url: z.string().describe('http(s) 纹理 URL'),
         map: z.enum(TEXTURE_MAPS).optional().describe('默认 map'),
         meshName: z.string().optional(),
-      }),
-      execute: (input) => applyTexture(editor, input),
-    }),
-    setLightProps: guardTool({
-      description: 'Three.js 原生：灯光 target/castShadow/distance/angle/penumbra/shadow 参数',
-      inputSchema: z.object({
+      }), (input) => applyTexture(editor, input)),
+    setLightProps: mk('Three.js 原生：灯光 target/castShadow/distance/angle/penumbra/shadow 参数', z.object({
         id: z.number(),
         target: vec3flex.describe('平行光/聚光灯照射目标点'),
         castShadow: z.boolean().optional(),
@@ -3331,12 +3678,8 @@ export function createSceneTools(editor) {
         decay: z.number().min(0).max(10).optional(),
         shadowBias: z.number().min(-0.01).max(0.01).optional(),
         shadowMapSize: z.number().int().min(256).max(4096).optional(),
-      }),
-      execute: (input) => setLightProps(editor, input),
-    }),
-    createBufferMesh: guardTool({
-      description: 'Three.js 原生：BufferGeometry 自定义顶点网格，positions 为 [x,y,z,...] 扁平数组',
-      inputSchema: z.object({
+      }), (input) => setLightProps(editor, input)),
+    createBufferMesh: mk('Three.js 原生：BufferGeometry 自定义顶点网格，positions 为 [x,y,z,...] 扁平数组', z.object({
         positions: z.array(z.number()).min(9).max(15000),
         indices: z.array(z.number().int().min(0)).max(50000).optional(),
         colors: z.array(z.number()).optional().describe('与 positions 等长，顶点色'),
@@ -3348,28 +3691,16 @@ export function createSceneTools(editor) {
         }).optional(),
         name: z.string().optional(), position: vec3, parentId: z.number().optional(),
         onGround: z.boolean().optional(), flat: z.boolean().optional(), flyTo: z.boolean().optional(),
-      }),
-      execute: (input) => createBufferMesh(editor, input),
-    }),
-    addNativeLight: guardTool({
-      description: 'Three.js 原生：用 API 类名添加灯光(AmbientLight/DirectionalLight/...)，配合 setLightProps',
-      inputSchema: z.object({
+      }), (input) => createBufferMesh(editor, input)),
+    addNativeLight: mk('Three.js 原生：用 API 类名添加灯光(AmbientLight/DirectionalLight/...)，配合 setLightProps', z.object({
         type: z.enum(NATIVE_LIGHT_TYPES).optional().describe('默认 DirectionalLight'),
         position: vec3, color: z.string().optional(), intensity: z.number().min(0).max(MAX_INTENSITY).optional(),
-      }),
-      execute: (input) => addNativeLight(editor, input),
-    }),
-    addSprite: guardTool({
-      description: 'Three.js 原生：Sprite 文字标签或贴图精灵',
-      inputSchema: z.object({
+      }), (input) => addNativeLight(editor, input)),
+    addSprite: mk('Three.js 原生：Sprite 文字标签或贴图精灵', z.object({
         text: z.string().optional(), textureUrl: z.string().optional().describe('http(s) 贴图 URL'),
         position: vec3, color: z.string().optional(), fontSize: z.number().optional(), name: z.string().optional(),
-      }),
-      execute: (input) => addSprite(editor, input),
-    }),
-    createInstancedMesh: guardTool({
-      description: 'Three.js 原生：InstancedMesh 批量渲染相同几何，count 最多 2000',
-      inputSchema: z.object({
+      }), (input) => addSprite(editor, input)),
+    createInstancedMesh: mk('Three.js 原生：InstancedMesh 批量渲染相同几何，count 最多 2000', z.object({
         geometryType: z.enum(GEOMETRY_TYPES),
         geometryParams: geoParams.optional(),
         materialType: z.enum(MATERIAL_TYPES).optional(),
@@ -3379,24 +3710,16 @@ export function createSceneTools(editor) {
           position: vec3, rotation: vec3, scale: z.union([vec3, z.number()]).optional(),
         })).max(MAX_INSTANCES).optional(),
         name: z.string().optional(), position: vec3, parentId: z.number().optional(), flyTo: z.boolean().optional(),
-      }),
-      execute: (input) => createInstancedMesh(editor, input),
-    }),
-    createLatheMesh: guardTool({
-      description: 'Three.js 原生：LatheGeometry 旋转体，profile=[[x,y],...] 轮廓点',
-      inputSchema: z.object({
+      }), (input) => createInstancedMesh(editor, input)),
+    createLatheMesh: mk('Three.js 原生：LatheGeometry 旋转体，profile=[[x,y],...] 轮廓点', z.object({
         profile: profile2d,
         segments: z.number().int().min(3).max(128).optional(),
         materialType: z.enum(MATERIAL_TYPES).optional(),
         materialParams: matParams,
         name: z.string().optional(), position: vec3, parentId: z.number().optional(),
         onGround: z.boolean().optional(), flyTo: z.boolean().optional(),
-      }),
-      execute: (input) => createLatheMesh(editor, input),
-    }),
-    addTubeMesh: guardTool({
-      description: 'Three.js 原生：CatmullRomCurve3 + TubeGeometry 管道网格',
-      inputSchema: z.object({
+      }), (input) => createLatheMesh(editor, input)),
+    addTubeMesh: mk('Three.js 原生：CatmullRomCurve3 + TubeGeometry 管道网格', z.object({
         points: path3d,
         radius: z.number().min(0.01).max(50).optional(),
         tubularSegments: z.number().int().min(8).max(256).optional(),
@@ -3404,58 +3727,26 @@ export function createSceneTools(editor) {
         materialType: z.enum(MATERIAL_TYPES).optional(),
         materialParams: matParams,
         name: z.string().optional(), position: vec3, parentId: z.number().optional(), flyTo: z.boolean().optional(),
-      }),
-      execute: (input) => addTubeMesh(editor, input),
-    }),
-    updateMeshGeometry: guardTool({
-      description: 'Three.js 原生：BufferGeometry 后处理 computeVertexNormals/center/包围盒',
-      inputSchema: z.object({
+      }), (input) => addTubeMesh(editor, input)),
+    updateMeshGeometry: mk('Three.js 原生：BufferGeometry 后处理 computeVertexNormals/center/包围盒', z.object({
         id: z.number(), meshName: z.string().optional(),
         computeNormals: z.boolean().optional(),
         center: z.boolean().optional(),
         computeBounds: z.boolean().optional(),
-      }),
-      execute: (input) => updateMeshGeometry(editor, input),
-    }),
-    addMeshWireframe: guardTool({
-      description: 'Three.js 原生：EdgesGeometry/WireframeGeometry 线框叠加',
-      inputSchema: z.object({
+      }), (input) => updateMeshGeometry(editor, input)),
+    addMeshWireframe: mk('Three.js 原生：EdgesGeometry/WireframeGeometry 线框叠加', z.object({
         id: z.number(), meshName: z.string().optional(),
         mode: z.enum(['edges', 'wireframe']).optional(),
         color: z.string().optional(),
         thresholdAngle: z.number().min(1).max(90).optional(),
         name: z.string().optional(),
-      }),
-      execute: (input) => addMeshWireframe(editor, input),
-    }),
-    listScenes: guardTool({
-      description: '列出可加载的配置案例场景',
-      inputSchema: z.object({}),
-      execute: () => ({ scenes: listScenes() }),
-    }),
-    loadScene: guardTool({
-      description: '【慎用】加载配置案例，会替换当前场景。用户明确要求时才调用',
-      inputSchema: z.object({ name: z.string().describe('场景名，来自 listScenes') }),
-      execute: ({ name }) => loadScene(editor, name),
-    }),
-    listSkies: guardTool({
-      description: '列出天空盒/环境贴图选项',
-      inputSchema: z.object({}),
-      execute: () => ({ skies: SKIES.map(s => s.name) }),
-    }),
-    setSky: guardTool({
-      description: '设置天空盒背景',
-      inputSchema: z.object({ name: z.string().describe('来自 listSkies') }),
-      execute: ({ name }) => setSky(editor, name),
-    }),
-    setEnv: guardTool({
-      description: '设置环境反射贴图',
-      inputSchema: z.object({ name: z.string().describe('蓝天/晴天/森林') }),
-      execute: ({ name }) => setEnv(editor, name),
-    }),
-    setHelpers: guardTool({
-      description: '网格/坐标轴/包围盒辅助：显示、尺寸、颜色、长度',
-      inputSchema: z.object({
+      }), (input) => addMeshWireframe(editor, input)),
+    listScenes: mk('列出可加载的配置案例场景', z.object({}), () => ({ scenes: listScenes() })),
+    loadScene: mk('【慎用】加载配置案例，会替换当前场景。用户明确要求时才调用', z.object({ name: z.string().describe('场景名，来自 listScenes') }), ({ name }) => loadScene(editor, name)),
+    listSkies: mk('列出天空盒/环境贴图选项', z.object({}), () => ({ skies: SKIES.map(s => s.name) })),
+    setSky: mk('设置天空盒背景', z.object({ name: z.string().describe('来自 listSkies') }), ({ name }) => setSky(editor, name)),
+    setEnv: mk('设置环境反射贴图', z.object({ name: z.string().describe('蓝天/晴天/森林') }), ({ name }) => setEnv(editor, name)),
+    setHelpers: mk('网格/坐标轴/包围盒辅助：显示、尺寸、颜色、长度', z.object({
         grid: z.boolean().optional(),
         axes: z.boolean().optional(),
         size: z.number().min(1).max(10000).optional().describe('网格总尺寸'),
@@ -3465,20 +3756,12 @@ export function createSceneTools(editor) {
         axesLength: z.number().min(1).max(10000).optional().describe('坐标轴长度'),
         useBox3: z.boolean().optional().describe('显示选中包围盒'),
         box3Color: hexColor.optional().describe('包围盒颜色'),
-      }),
-      execute: (input) => setHelpers(editor, input),
-    }),
-    focusObject: guardTool({
-      description: '选中并飞过去',
-      inputSchema: z.object({ id: z.number(), duration: z.number().min(0.1).max(5).optional() }),
-      execute: ({ id, duration }) => focusObject(editor, id, duration ?? 0.5),
-    }),
-    focusView: guardTool({
-      description: '相机飞到指定位置和目标',
-      inputSchema: z.object({
+      }), (input) => setHelpers(editor, input)),
+    focusObject: mk('选中并飞过去', z.object({ id: z.number(), duration: z.number().min(0.1).max(5).optional() }), ({ id, duration }) => focusObject(editor, id, duration ?? 0.5)),
+    focusView: mk('相机飞到指定位置和目标', z.object({
         position: vec3req, target: vec3req, duration: z.number().min(0.1).max(5).optional(),
-      }),
-      execute: ({ position, target, duration }) => focusView(editor, position, target, duration ?? 0.5),
-    }),
+      }), ({ position, target, duration }) => focusView(editor, position, target, duration ?? 0.5)),
   }
 }
+
+export { mk, vec3, vec3req, allSceneTools }
