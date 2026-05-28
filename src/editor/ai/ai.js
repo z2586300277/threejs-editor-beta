@@ -155,6 +155,8 @@ function saveAiConfig(baseURL, apiKey, model) {
 
 const MAX_HISTORY = 12
 const TOOL_STATUS = {
+  inspectScene: '读取场景', listCatalog: '读取资源目录',
+  getElementGuide: '读取元素指南', getCompositionGuide: '读取构图指南',
   getEditorApi: '读取编辑器 API', listEditorActions: '读取 action 目录', runEditorAction: '执行编辑器 action',
   openEditorPanel: '打开配置面板', openObjectPanel: '打开对象面板',
   listObjects: '列出场景对象', getSpatialContext: '读取空间上下文', getDetail: '读取对象详情',

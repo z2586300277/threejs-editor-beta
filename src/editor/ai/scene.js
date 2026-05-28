@@ -30,6 +30,18 @@ const MESH_TYPES = {
   '十二面体': () => new THREE.DodecahedronGeometry(0.5),
   '圆扭结': () => new THREE.TorusKnotGeometry(0.4, 0.1, 64, 8),
 }
+const MESH_USAGE = {
+  '立方体': '建筑块、平台、箱体、台阶',
+  '球体': '装饰球、天体、节点、hero 主体',
+  '圆柱': '柱子、树干、塔身',
+  '圆锥': '屋顶、树形、标记锥',
+  '圆环': '光环、轨道、装饰环',
+  '平面': '地面/墙面/背景板（地面需 flat+onGround）',
+  '二十面体': '低多边形装饰、晶体',
+  '八面体': '宝石、钻石形装饰',
+  '十二面体': '骰子、几何装饰',
+  '圆扭结': '艺术装饰、复杂曲线主体',
+}
 const SKIES = [
   { name: '蓝天', url: 'https://z2586300277.github.io/three-editor/dist/files/scene/skyBox0/' },
   { name: '晴天', url: 'https://z2586300277.github.io/3d-file-server/files/sky/skyBox1/' },
@@ -263,9 +275,12 @@ function detectGroundSurface(editor) {
 }
 
 function brief(o) {
+  const cls = classifySceneObject(o)
   const b = {
     id: o.id, name: o.name || '(未命名)', type: o.designType || o.type,
+    role: cls.role, category: cls.category,
     editorType: o.editorType || null, designType: o.designType || null,
+    componentLabel: cls.componentLabel || null,
     visible: o.visible, position: v3(o.position), worldPosition: worldPos(o),
   }
   const bounds = getBounds(o)
@@ -430,6 +445,72 @@ function findDesign(obj) {
 function isGroundComponent(design) {
   const tag = `${design?.label || ''}${design?.name || ''}`
   return /地面|floor|ground|海面|grass|Grass/i.test(tag)
+}
+
+const ELEMENT_CATEGORIES = [
+  { id: 'ground', label: '地面/环境底', keywords: /地面|floor|ground|海面|grass|Grass|sky|天空|groundSky|roomEnv|cubeEnv|磨砂反射/ },
+  { id: 'effect', label: '粒子/特效', keywords: /粒子|火焰|烟花|下雪|喷水|烟|smoke|fire|zhengqi|极光|黑洞|魔法|扩散|彩虹|ice|蜡烛/ },
+  { id: 'chart', label: '数据图表', keywords: /chart|Charts|图表|柱状|折线|饼|scatter|radar|拓扑/ },
+  { id: 'ui', label: 'UI/标注', keywords: /css2d|css3d|ui-|iframe|热点|警告|亮光|精灵|刻度|2dLink|评分|轮播|表单/ },
+  { id: 'geo', label: '地理/地图', keywords: /地球|3dtiles|智慧城市|levelBuild|全景|viewAngle/ },
+  { id: 'light_fx', label: '光效/扫描', keywords: /光柱|扫光|雷达|扫描|扩散波/ },
+  { id: 'model_fx', label: '模型/展示', keywords: /反射模型|分解|锥子|高斯|人物行走|路径运动|围墙|动态圆墙/ },
+  { id: 'physics', label: '物理/交互', keywords: /cannon|物理|eventCall|audio/ },
+  { id: 'water', label: '水体/流体', keywords: /宽水流|海面/ },
+  { id: 'other', label: '其他组件', keywords: null },
+]
+
+const OBJECT_TYPES_GUIDE = {
+  component: { 来源: '左侧面板 addComponent', 识别: '有 designType', 修改: 'setObjectParams(params/uniforms/materials)', 注意: '含 shader/动画逻辑，勿只改 position' },
+  mesh: { 来源: 'addMesh 基础几何', 识别: 'editorType=isInnerMesh 或无 designType 的 Mesh', 修改: 'setProps / setMaterial' },
+  model: { 来源: 'addModel', 识别: '含 animations 或 GLB/FBX', 修改: 'setProps + playAnimation' },
+  light: { 来源: 'addLight / addNativeLight', 识别: 'isLight', 修改: 'setProps / setLightProps' },
+  floor: { 来源: '平面或地面组件', 识别: 'isFloorLike 或地面类 designType', 修改: 'placeOnGround 参考；scale 保持正方形', 注意: '决定 recommendedGroundY' },
+  group: { 来源: 'createGroup / 组件容器', 识别: 'type=Group', 修改: 'setProps；子物体 getDetail.children' },
+}
+
+function inferComponentCategory(label = '', name = '') {
+  const tag = `${label}${name}`
+  for (const cat of ELEMENT_CATEGORIES) {
+    if (cat.keywords?.test(tag)) return cat
+  }
+  return ELEMENT_CATEGORIES.find(c => c.id === 'other')
+}
+
+function classifySceneObject(o) {
+  if (isFloorLike(o)) return { role: 'floor', category: 'ground', hint: '地面参考面，影响贴地高度' }
+  if (o.isLight) return { role: 'light', category: 'light', hint: '照明，改 intensity/color/position' }
+  if (o.designType) {
+    const design = findDesign(o)
+    const cat = inferComponentCategory(design?.label || '', o.designType)
+    return {
+      role: 'component', category: cat.id,
+      componentLabel: design?.label || o.designType,
+      hint: `${cat.label}，用 setObjectParams 改 params/uniforms`,
+    }
+  }
+  if (o.animations?.length) return { role: 'model', category: 'model', hint: 'GLB 模型，listAnimations → playAnimation' }
+  if (o.editorType === 'isInnerMesh') return { role: 'mesh', category: 'mesh', hint: '基础几何，setProps/setMaterial' }
+  if (o.type === 'Group') return { role: 'group', category: 'group', hint: '容器 Group，改子级用 getDetail.children' }
+  if (o.isMesh) return { role: 'mesh', category: 'mesh', hint: 'Mesh，setProps/setMaterial' }
+  if (o.isLine || o.isPoints || o.isSprite) return { role: 'primitive', category: 'primitive', hint: 'Line/Points/Sprite 图元' }
+  return { role: 'other', category: 'other', hint: 'getDetail 进一步分析' }
+}
+
+function getComponentMeta(design) {
+  if (!design) return null
+  const cat = inferComponentCategory(design.label, design.name)
+  const keyParams = design.initParameters ? Object.keys(design.initParameters).slice(0, 8) : []
+  return {
+    label: design.label,
+    name: design.name,
+    category: cat.id,
+    categoryLabel: cat.label,
+    autoGround: isGroundComponent(design),
+    keyParams,
+    add: `addComponent({ type:"${design.label}", onGround:${isGroundComponent(design)} })`,
+    edit: 'setObjectParams({ id, params, uniforms, materials })',
+  }
 }
 
 function normalizeParamsInput(params) {
@@ -665,7 +746,12 @@ function setObjectParams(editor, { id, params, uniforms, extras, materials }) {
 function listComponentSchema(label) {
   const design = ThreeEditor.__DESIGNS__.find(d => d.label === label || d.name === label)
   if (!design) return { error: `未找到组件「${label}」`, components: ThreeEditor.__DESIGNS__.map(d => d.label) }
-  return { label: design.label, name: design.name, defaults: design.initParameters || {} }
+  const meta = getComponentMeta(design)
+  return {
+    ...meta,
+    defaults: design.initParameters || {},
+    hint: `${meta.categoryLabel}组件；添加后 ${meta.edit}`,
+  }
 }
 
 function listModels() {
@@ -2323,6 +2409,21 @@ export const SCENE_SYSTEM = `Three.js 场景编辑助手。Y 轴向上，地面 
 3. 改已有对象 → getDetail(id) 一次；禁止 getDetail 后再 getObjectParams
 4. 贴地 → addMesh/addModel/addComponent 默认 onGround；改已有用 placeOnGround
 
+【场景元素理解 - 必须遵守】
+- 对象分 role：floor/light/component/model/mesh/group；inspectScene.objects 含 role+category
+- 不理解组件/元素 → getElementGuide（含分类目录+当前场景解读）；单个组件 → listComponentSchema(label)
+- 组件(component)：左侧面板 addComponent，有 params/uniforms → setObjectParams；勿当普通 Mesh 只改 color
+- 基础几何(mesh)：addMesh → setProps/setMaterial | 模型(model)：addModel → playAnimation
+- 地面(floor)：决定 recommendedGroundY；地面类组件用 addComponent onGround:true
+
+【构图与美学 - 生成/美化场景必遵守】
+- 用户要「漂亮/好看/完整/随机场景」→ 第一步 getCompositionGuide，选 1 组 palette，严格按 workflow 执行
+- 尺度：地面 50×50；hero 1 个 scale 0.8~1.5 近原点；装饰 3~5 个 scale 0.3~1.0；间距≥3；总物体≤12
+- 禁止：随机巨大 scale/position；5 种以上颜色；各物体 scale 差距>5 倍；|x|或|z|>20 散落
+- 配色：60-30-10 规则；setMaterial 用 palette 内 hex；background/fog/ground 同色系
+- 灯光：环境光(0.35)+平行光主光[5,8,5](1.0)+点光补光[-3,4,3](0.5)；主光开阴影
+- 构图：三角/对称/前景-主体-背景三选一；全部 onGround；完成后 focusView 检查
+
 【任务路由 - listCatalog.routes】
 编辑器便捷：加模型→addModel | 加组件→addComponent | 加几何→addMesh | 加灯→addLight
 Three.js 原生：createMesh/createBufferMesh | createGroup/reparentObject/cloneObject
@@ -2402,21 +2503,145 @@ function collectObjects(editor, opts = {}) {
 }
 
 function summarizeObjects(raw) {
-  const s = { total: raw.length, floors: 0, lights: 0, designs: 0, models: 0, meshes: 0 }
+  const s = { total: raw.length, floors: 0, lights: 0, designs: 0, models: 0, meshes: 0, byRole: {}, byCategory: {} }
   for (const o of raw) {
     if (isFloorLike(o)) s.floors++
     else if (o.isLight) s.lights++
     else if (o.designType) s.designs++
     else if (o.animations?.length) s.models++
     else if (o.editorType === 'isInnerMesh') s.meshes++
+    const cls = classifySceneObject(o)
+    s.byRole[cls.role] = (s.byRole[cls.role] || 0) + 1
+    s.byCategory[cls.category] = (s.byCategory[cls.category] || 0) + 1
   }
   return s
+}
+
+function buildElementCatalog(full = false) {
+  const designs = ThreeEditor.__DESIGNS__ || []
+  const byCategory = {}
+  const components = designs.map(d => {
+    const meta = getComponentMeta(d)
+    if (!byCategory[meta.category]) byCategory[meta.category] = { label: meta.categoryLabel, items: [] }
+    byCategory[meta.category].items.push(meta.label)
+    return full ? meta : meta.label
+  })
+  const base = {
+    count: designs.length,
+    meshUsage: MESH_USAGE,
+    objectTypes: OBJECT_TYPES_GUIDE,
+    categories: Object.fromEntries(
+      Object.entries(byCategory).map(([id, v]) => [id, { label: v.label, items: v.items }]),
+    ),
+  }
+  if (!full) return { guide: 'getElementGuide()', ...base }
+  return { ...base, components }
+}
+
+function getElementGuide(editor) {
+  const catalog = buildElementCatalog(true)
+  const raw = collectObjects(editor, {})
+  const elements = raw.slice(0, LIST_CAP).map(o => {
+    const cls = classifySceneObject(o)
+    return {
+      id: o.id, name: o.name || '(未命名)',
+      role: cls.role, category: cls.category,
+      componentLabel: cls.componentLabel || null,
+      type: o.designType || o.type,
+      hint: cls.hint,
+    }
+  })
+  return {
+    purpose: '理解编辑器组件分类、场景元素角色及正确修改方式',
+    objectTypes: OBJECT_TYPES_GUIDE,
+    catalog,
+    scene: {
+      summary: summarizeObjects(raw),
+      elements,
+      truncated: raw.length > LIST_CAP,
+    },
+    workflows: {
+      理解现有场景: 'inspectScene → objects[].role/category → getDetail(id).custom',
+      选组件添加: 'catalog.categories 按类选 → listComponentSchema(label) → addComponent',
+      改组件参数: 'getDetail(id).custom.params/uniforms → setObjectParams',
+      改基础几何: 'setProps / setMaterial',
+      改模型动画: 'listAnimations → playAnimation',
+    },
+  }
+}
+
+const COLOR_PALETTES = [
+  { name: '黄昏暖调', background: '#1a1423', fog: '#2d3436', ground: '#4a4a4a', primary: '#e17055', secondary: '#636e72', accent: '#fdcb6e' },
+  { name: '森林清晨', background: '#dfe6e9', fog: '#b2bec3', ground: '#636e72', primary: '#00b894', secondary: '#55efc4', accent: '#fdcb6e' },
+  { name: '海洋暮色', background: '#0c2461', fog: '#1e3799', ground: '#487eb0', primary: '#4bcffa', secondary: '#0fbcf9', accent: '#f8c291' },
+  { name: '极简中性', background: '#f5f6fa', fog: '#dcdde1', ground: '#7f8fa6', primary: '#273c75', secondary: '#718093', accent: '#e1b12c' },
+  { name: '霓虹赛博', background: '#0a0a1a', fog: '#1a1a2e', ground: '#16213e', primary: '#e94560', secondary: '#0f3460', accent: '#00fff5' },
+]
+
+const COMPOSITION = {
+  groundSize: 50,
+  heroScale: [0.8, 1.5],
+  propScale: [0.3, 1],
+  maxHero: 1,
+  maxProps: 5,
+  maxTotal: 12,
+  playRadiusDefault: 12,
+  minSpacingDefault: 3,
+}
+
+function getCompositionGuide(editor) {
+  const spatial = getSpatialContext(editor)
+  const cell = spatial.grid?.cellSize ?? 1
+  const spacing = r(Math.max(COMPOSITION.minSpacingDefault, cell * 3))
+  const groundSize = spatial.grid?.size ?? COMPOSITION.groundSize
+  const playRadius = r(Math.min(groundSize / 4, COMPOSITION.playRadiusDefault))
+  return {
+    purpose: '生成或美化场景前先读本指南，避免尺寸杂乱与配色冲突',
+    spatial: {
+      groundY: spatial.axes.recommendedGroundY,
+      grid: spatial.grid,
+      playRadius,
+      spacing,
+      placement: `物体集中在 XZ [-${playRadius}, ${playRadius}]，相邻间距 ≥ ${spacing}`,
+    },
+    scale: {
+      ground: `${groundSize}×${groundSize} 正方形平面（addMesh 平面 size:${COMPOSITION.groundSize} flat onGround）`,
+      hero: `唯一主体 scale ${COMPOSITION.heroScale.join('~')}，position 近 [0, y, 0]`,
+      props: `装饰 ${COMPOSITION.maxProps} 个以内 scale ${COMPOSITION.propScale.join('~')}`,
+      forbid: '禁止 scale>3；禁止各物体 scale 差距>5 倍；禁止 |x|或|z|>20 的随机散落',
+    },
+    color: {
+      rule: '60-30-10：主色 dominant、辅色 secondary、accent 点缀≤10%；全场景可见主色≤3',
+      material: 'metalness 0.1~0.6，roughness 0.3~0.85；颜色取自 palette',
+      palettes: COLOR_PALETTES,
+    },
+    lighting: {
+      recipe: [
+        { type: '环境光', intensity: 0.35 },
+        { type: '平行光', position: [5, 8, 5], intensity: 1, castShadow: true },
+        { type: '点光源', position: [-3, 4, 3], intensity: 0.5, color: 'palette.accent' },
+      ],
+    },
+    layout: {
+      patterns: ['三角构图：hero 中心，props 等角 120° 分布', '对称：hero 居中，props 左右镜像', '前景-主体-背景：近小远大'],
+    },
+    workflow: [
+      '1. 选 1 组 palette',
+      '2. 地面：addMesh(平面, size:50, flat, onGround) 或 addComponent(网格地面)',
+      '3. setSceneProps(background/fog) 或 setSky+setEnv 同系列',
+      '4. 三连灯：环境光 + 平行光[5,8,5] + 点光[-3,4,3]',
+      '5. hero 1 个 + props 3~5 个，按 spacing 网格或三角构图摆放',
+      '6. setMaterial 统一 palette 色；placeOnGround 全部贴地',
+      '7. focusView 检查整体比例',
+    ],
+  }
 }
 
 function listCatalog() {
   return {
     models: listModels().slice(0, 30),
     components: ThreeEditor.__DESIGNS__.map(d => d.label),
+    elements: buildElementCatalog(false),
     lights: LIGHT_TYPES,
     meshes: Object.keys(MESH_TYPES),
     skies: SKIES.map(s => s.name),
@@ -2439,8 +2664,9 @@ function listCatalog() {
       actionCount: Object.keys(EDITOR_ACTIONS).length,
     },
     routes: {
-      看场景: 'inspectScene',
+      看场景: 'inspectScene（含 role/category）',
       查可添加资源: 'listCatalog（本工具）',
+      理解组件元素: 'getElementGuide → listComponentSchema(label)',
       加模型: 'addModel({ urlOrName, onGround:true })',
       加组件: 'addComponent({ type, onGround:true })',
       加几何体: 'addMesh(中文) 或 createMesh/createBufferMesh(Three.js 类名/顶点)',
@@ -2457,8 +2683,14 @@ function listCatalog() {
       打开GUI: 'openEditorPanel / openObjectPanel / runEditorAction openCorePanel',
       撤销重做: 'undoEditor / redoEditor',
       未知能力: 'listEditorActions → runEditorAction',
+      生成漂亮场景: 'getCompositionGuide → 按 workflow 逐步执行',
     },
-    hint: '优先 routes 选工具；一次 listCatalog 即可，勿连环 listModels+listComponents',
+    composition: {
+      guide: 'getCompositionGuide()',
+      palettes: COLOR_PALETTES.map(p => p.name),
+      scale: { ground: COMPOSITION.groundSize, hero: COMPOSITION.heroScale, prop: COMPOSITION.propScale, maxTotal: COMPOSITION.maxTotal },
+    },
+    hint: '优先 routes；理解组件用 getElementGuide；生成场景用 getCompositionGuide',
   }
 }
 
@@ -2476,6 +2708,12 @@ function inspectScene(editor, { id, name, type, designType, deep, includeObjects
   out.summary = summarizeObjects(raw)
   out.objects = raw.slice(0, LIST_CAP).map(brief)
   if (raw.length > LIST_CAP) out.truncated = true
+  if (out.summary.total < 5) {
+    out.compositionHint = '场景较空，生成前请 getCompositionGuide 选 palette 与 scale 规则'
+  }
+  if (out.summary.designs > 0 || out.summary.total > 0) {
+    out.elementHint = 'objects 含 role/category；详查组件用 getElementGuide 或 listComponentSchema'
+  }
   return out
 }
 
@@ -2486,7 +2724,7 @@ export function listObjects(editor, opts = {}) {
 export function createSceneTools(editor) {
   return {
     inspectScene: guardTool({
-      description: '【首选】一次读取场景：空间上下文+对象摘要+选中项。替代 listObjects+getSpatialContext 组合',
+      description: '【首选】场景+空间+对象摘要（含 role/category 元素角色）。替代 listObjects+getSpatialContext',
       inputSchema: z.object({
         id: z.number().optional().describe('可选，同时返回该对象完整 detail'),
         name: z.string().optional().describe('按名称过滤对象列表'),
@@ -2498,9 +2736,19 @@ export function createSceneTools(editor) {
       execute: (input) => inspectScene(editor, input),
     }),
     listCatalog: guardTool({
-      description: '【首选】一次列出可添加的模型/组件/灯光/几何体/天空/案例场景，替代多个 list* 工具',
+      description: '【首选】资源目录+elements 组件分类摘要+composition。替代 listModels/listComponents 等',
       inputSchema: z.object({}),
       execute: () => listCatalog(),
+    }),
+    getElementGuide: guardTool({
+      description: '【理解组件/元素首选】组件分类目录、对象类型说明、当前场景元素解读与修改 workflow',
+      inputSchema: z.object({}),
+      execute: () => getElementGuide(editor),
+    }),
+    getCompositionGuide: guardTool({
+      description: '【生成漂亮场景首选】返回尺度/配色 palette/灯光/构图 workflow。用户要好看/完整/随机场景时第一步调用',
+      inputSchema: z.object({}),
+      execute: () => getCompositionGuide(editor),
     }),
     listObjects: guardTool({
       description: '列出场景对象(最多40)。优先用 inspectScene；大场景用 name/type 过滤',
@@ -2592,8 +2840,8 @@ export function createSceneTools(editor) {
       execute: (input) => setObjectParams(editor, input),
     }),
     listComponentSchema: guardTool({
-      description: '列出组件可配置参数的默认值(schema)，添加或修改组件前可查阅',
-      inputSchema: z.object({ label: z.string().describe('组件名，来自 listComponents') }),
+      description: '单个组件详情：分类、keyParams、defaults、添加/修改方式。type 来自 listCatalog.elements 或 getElementGuide',
+      inputSchema: z.object({ label: z.string().describe('组件 label，如 网格地面、柱状图') }),
       execute: ({ label }) => listComponentSchema(label),
     }),
     listAnimations: guardTool({
