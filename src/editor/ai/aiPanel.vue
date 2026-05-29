@@ -115,8 +115,17 @@ const btn = ref(layout.btn)
 const box = ref(layout.box)
 let msgId = active.msgId
 let abortCtrl = null
+let lastW = innerWidth
 
 const save = () => savePanelLayout({ btn: btn.value, box: box.value, open: open.value, showConfig: showConfig.value })
+
+function onResize() {
+  const dw = innerWidth - lastW
+  btn.value.x = clamp(btn.value.x + dw, 0, innerWidth - BTN)
+  box.value.x = clamp(box.value.x + dw, 0, innerWidth - box.value.w)
+  lastW = innerWidth
+  save()
+}
 const persistChat = () => persistActiveChat(chatStore.value, { msgId, messages: messages.value })
 
 async function confirmAction(message, title, okText) {
@@ -270,8 +279,8 @@ function blockEditorHotkeys(e) {
   e.stopImmediatePropagation()
 }
 
-onMounted(() => document.addEventListener('keydown', blockEditorHotkeys, true))
-onUnmounted(() => document.removeEventListener('keydown', blockEditorHotkeys, true))
+onMounted(() => { document.addEventListener('keydown', blockEditorHotkeys, true); window.addEventListener('resize', onResize) })
+onUnmounted(() => { document.removeEventListener('keydown', blockEditorHotkeys, true); window.removeEventListener('resize', onResize) })
 </script>
 
 <style scoped>

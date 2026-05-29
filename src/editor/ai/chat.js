@@ -413,7 +413,7 @@ export function restoreLayout({ btnSize = 48, minW = 320, minH = 400 } = {}) {
         x: clamp(saved.btn.x, 0, innerWidth - btnSize),
         y: clamp(saved.btn.y, 0, innerHeight - btnSize),
       }
-    : { x: innerWidth - 72, y: innerHeight - 128 };
+    : { x: Math.max(0, innerWidth - 365), y: Math.max(0, innerHeight - 80) };
   const box = saved?.box
     ? {
         x: clamp(saved.box.x, 0, innerWidth - minW),
@@ -422,8 +422,8 @@ export function restoreLayout({ btnSize = 48, minW = 320, minH = 400 } = {}) {
         h: clamp(saved.box.h, minH, innerHeight),
       }
     : {
-        x: Math.max(0, innerWidth - 404),
-        y: Math.max(0, innerHeight - 660),
+        x: Math.max(0, innerWidth - 680),
+        y: 160,
         w: 380,
         h: 520,
       };

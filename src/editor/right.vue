@@ -129,10 +129,10 @@
     <!-- 外部链接面板 -->
     <div class="external-links">
         <div class="control-group">
-            <!-- <div class="group-header">
+            <div class="group-header">
                 <span class="group-title">快捷链接 <img src="https://visitor-badge.laobi.icu/badge?page_id=three_editor" > </span> 
                 <div class="divider"></div>
-            </div> -->
+            </div>
             <div class="links-container">
                 <el-button v-for="link in externalLinks" :key="link.name" type="primary" plain size="small"
                     class="link-button" @click="openLink(link.url)">
