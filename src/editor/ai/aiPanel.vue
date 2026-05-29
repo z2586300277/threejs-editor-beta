@@ -64,7 +64,7 @@
         <div v-if="!messages.length" class="ai-empty">
           <div class="ai-empty-icon"><el-icon><ChatDotRound /></el-icon></div>
           <p class="ai-empty-title">想做什么场景？</p>
-          <p class="ai-empty-desc">随便说：「搭一个漂亮小场景」「把选中的改成红色」「加个网格地面」</p>
+          <p class="ai-empty-desc">建议这样说：「先分析当前场景，再给两套方案并执行其一」「只改选中球体材质，不新增对象」</p>
         </div>
         <BubbleList v-else :list="messages" :max-height="Math.max(120, box.h - (showConfig ? 240 : 130)) + 'px'" />
       </div>

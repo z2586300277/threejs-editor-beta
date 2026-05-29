@@ -162,14 +162,123 @@ export const EDITOR_ACTIONS = {
   clearEditorCache: { desc: '清理 localStorage/IndexDB 并刷新（危险，需 confirm:true）', params: { confirm: 'boolean 必须为 true' } },
 }
 
-export function listEditorActions() {
+const ACTION_REQUIREMENTS = {
+  openCorePanel: { allPaths: ['GUI'], allFns: ['GUI.addDragFolder'] },
+  openOtherPanel: {
+    allPaths: ['GUI', 'panelApi.otherPanelApi'],
+    anyFns: [[
+      'panelApi.otherPanelApi.setAnimateEditorPanel',
+      'panelApi.otherPanelApi.setControlsAnimationPanel',
+      'panelApi.otherPanelApi.setMeshAnimationPanel',
+      'panelApi.otherPanelApi.setClippingPanel',
+    ]],
+  },
+  addText3D: { allPaths: ['scene', 'textCores'] },
+  addParticleSystem: { allPaths: ['scene', 'particleCores'] },
+  addDrawLine: { allPaths: ['scene', 'renderer'] },
+  deselectAll: { allPaths: ['transformControls'] },
+  setOutlineSelection: { allPaths: ['scene', 'transformControls'], allFns: ['setOutlinePass'] },
+  nudgeTransform: { allPaths: ['scene', 'transformControls'] },
+  rotateObject90: { allPaths: ['scene', 'transformControls'] },
+  addCss2dLabel: { allFns: ['setCss2dDOM'] },
+  addCss3dElement: { allFns: ['setCss3dDOM'] },
+  saveViewAngle: { allPaths: ['other.viewAngleList', 'camera', 'controls'] },
+  flyToViewAngle: { allPaths: ['other.viewAngleList', 'camera', 'controls'] },
+  listViewAngles: { allPaths: ['other.viewAngleList'] },
+  listClippingPlanes: { allPaths: ['renderer'] },
+  addClippingPlane: { allPaths: ['renderer'] },
+  clearClippingPlanes: { allPaths: ['renderer'] },
+  getSceneStats: { allPaths: ['scene'] },
+  switchScene: { allFns: ['resetEditorStorage'] },
+  createSceneSlot: {},
+  deleteSceneSlot: {},
+  setPixelRatio: {},
+  setLogDepthBuffer: {},
+  getShareLink: {},
+  loadOnlineModel: { allPaths: ['scene'], allFns: ['modelCores.loadModel'] },
+  addInnerMesh: { allPaths: ['scene'] },
+  addCoreLight: { allPaths: ['scene'] },
+  applyBlendShader: { allPaths: ['scene'], allFns: ['shaderCores.setObjectBlendShader'] },
+  listBlendShaders: { allPaths: ['scene'] },
+  setSceneSkybox: {
+    allPaths: ['scene'],
+    anyFns: [['scene.setSceneBackground', 'scene.resetEnv']],
+  },
+  setSceneEnvironment: { allPaths: ['scene'], allFns: ['scene.setEnvBackground'] },
+  animateMeshTransform: { allPaths: ['scene'] },
+  addSpriteLabel: { allPaths: ['scene'] },
+  playCoreModelAnimation: { allFns: ['modelCores.modelAnimationPlay'] },
+  setHandlerOptions: { allPaths: ['handler', 'transformControls'] },
+  setPreview: { allPaths: ['handler'] },
+  applyTheatreAnimation: {},
+  clearTheatreAnimation: {},
+  controlTheatreSheet: { allPaths: ['other.animateEditor'] },
+  clearEditorCache: {},
+}
+
+function getPathValue(obj, path) {
+  return String(path || '').split('.').reduce((acc, key) => acc?.[key], obj)
+}
+
+function hasPath(editor, path) {
+  return getPathValue(editor, path) != null
+}
+
+function hasFn(editor, path) {
+  return typeof getPathValue(editor, path) === 'function'
+}
+
+function detectActionSupport(editor, action) {
+  if (!editor || !action) return { supported: true, missing: [] }
+  const req = ACTION_REQUIREMENTS[action]
+  if (!req) return { supported: true, missing: [] }
+
+  const missing = []
+
+  for (const p of (req.allPaths || [])) {
+    if (!hasPath(editor, p)) missing.push(`path:${p}`)
+  }
+
+  for (const f of (req.allFns || [])) {
+    if (!hasFn(editor, f)) missing.push(`fn:${f}`)
+  }
+
+  for (const group of (req.anyFns || [])) {
+    const ok = group.some((f) => hasFn(editor, f))
+    if (!ok) missing.push(`fn:any(${group.join('|')})`)
+  }
+
+  return { supported: missing.length === 0, missing }
+}
+
+export function listEditorActions(editor) {
   const cores = CORES_LIST.map(c => ({ name: c.name, label: c.label }))
+  const allActionNames = Object.keys(EDITOR_ACTIONS)
+  const mappedActionNames = allActionNames.filter(name => ACTION_REQUIREMENTS[name])
+  const unmappedActionNames = allActionNames.filter(name => !ACTION_REQUIREMENTS[name])
+  const actions = Object.entries(EDITOR_ACTIONS).map(([name, meta]) => {
+    const support = detectActionSupport(editor, name)
+    return {
+      name,
+      desc: meta.desc,
+      params: meta.params,
+      supported: support.supported,
+      ...(support.supported ? {} : { missing: support.missing }),
+    }
+  })
+  const available = actions.filter(a => a.supported).length
   return {
     total: Object.keys(EDITOR_ACTIONS).length,
-    actions: Object.entries(EDITOR_ACTIONS).map(([name, meta]) => ({ name, desc: meta.desc, params: meta.params })),
+    available,
+    requirementCoverage: {
+      covered: mappedActionNames.length,
+      total: allActionNames.length,
+      unmapped: unmappedActionNames,
+    },
+    actions,
     cores,
     otherPanels: OTHER_PANELS,
-    hint: '专用工具优先；其余 runEditorAction。模型/内置/灯光/着色器优先 addInnerMesh/addCoreLight/applyBlendShader/loadOnlineModel（走 attach_add）',
+    hint: 'supported=false 代表当前编辑器缺少能力。优先用专用工具，其余走 runEditorAction。',
   }
 }
 
@@ -539,14 +648,33 @@ function addCoreLight(editor, { type, position, color, intensity }) {
   return { object: { id: light.id, name: light.name, type: light.type } }
 }
 
-function listBlendShaders(editor) {
+function getBlendShaderCapability(editor) {
   const fromStatic = Array.isArray(ThreeEditor.__GLSLLIB__)
     ? ThreeEditor.__GLSLLIB__.map(i => i?.name).filter(Boolean)
     : []
   const lib = editor?.shaderCores?.shaderLibrary || editor?.scene?.shaderLibrary
   const fromRuntime = lib ? Object.keys(lib).filter(k => typeof lib[k] === 'object') : []
   const shaders = [...new Set([...fromStatic, ...fromRuntime])]
-  return { shaders: shaders.length ? shaders : ['水波纹'], hint: 'applyBlendShader({ id, shaderName })' }
+  const supported = typeof editor?.shaderCores?.setObjectBlendShader === 'function'
+  return {
+    supported,
+    shaders,
+    shaderCount: shaders.length,
+    source: { static: fromStatic.length, runtime: fromRuntime.length },
+    missing: supported ? [] : ['fn:shaderCores.setObjectBlendShader'],
+  }
+}
+
+function listBlendShaders(editor) {
+  const cap = getBlendShaderCapability(editor)
+  return {
+    supported: cap.supported,
+    shaders: cap.shaders.length ? cap.shaders : ['水波纹'],
+    shaderCount: cap.shaderCount,
+    source: cap.source,
+    ...(cap.supported ? {} : { missing: cap.missing }),
+    hint: 'runEditorAction({ action: "applyBlendShader", params: { id, shaderName, uvType } })',
+  }
 }
 
 function applyBlendShader(editor, { id, shaderName, uvType }) {
@@ -747,6 +875,14 @@ export async function runEditorAction(editor, { action, params = {} }) {
   if (!editor?.scene) return { error: '编辑器未就绪' }
   if (!action) return { error: '缺少 action', hint: 'listEditorActions 查可用 action' }
   if (!EDITOR_ACTIONS[action]) return { error: `未知 action「${action}」`, hint: '先 listEditorActions' }
+  const support = detectActionSupport(editor, action)
+  if (!support.supported) {
+    return {
+      error: `action「${action}」当前编辑器能力不足`,
+      missing: support.missing,
+      hint: '先 getEditorApi 查看能力，或 listEditorActions(editor) 查看 supported 项',
+    }
+  }
   const fn = HANDLERS[action]
   if (!fn) return { error: `action「${action}」尚未实现` }
   try {
@@ -868,7 +1004,7 @@ function getBounds(o) {
 }
 
 function geomInfo(o) {
-  if (!o.isMesh?.geometry) return null
+  if (!o?.isMesh || !o.geometry) return null
   const g = o.geometry
   const p = g.parameters
   if (!p) return { type: g.type, vertices: g.attributes?.position?.count }
@@ -1008,7 +1144,7 @@ function snapshotLine(o) {
   const b = getBounds(o)
   let col = ''
   o.traverse?.(c => {
-    if (!col && c.isMesh?.material?.color) col = `#${c.material.color.getHexString()}`
+    if (!col && c?.isMesh && c.material?.color) col = `#${c.material.color.getHexString()}`
   })
   const parts = [`#${o.id} ${o.name || '?'}(${cls.role})`, `@${v3(o.position).join(',')}`]
   if (b) parts.push(`sz${b.size.map(x => r(x)).join('×')}`)
@@ -1074,7 +1210,7 @@ function detail(o, opts = {}) {
   const custom = readCustomProps(o)
   if (custom.params || custom.uniforms || custom.materials || custom.schema) d.custom = custom
   o.traverse?.(c => {
-    if (d.material || !c.isMesh?.material) return
+    if (d.material || !c?.isMesh || !c.material) return
     const m = Array.isArray(c.material) ? c.material[0] : c.material
     if (m?.color) d.material = { color: `#${m.color.getHexString()}`, opacity: r(m.opacity ?? 1) }
   })
@@ -1178,7 +1314,7 @@ function placeOnGround(editor, { id, groundY, flat, x, z, refId }) {
   }
   if (flat) {
     let mesh = obj.geometry?.type === 'PlaneGeometry' ? obj : null
-    obj.traverse?.(c => { if (!mesh && c.isMesh?.geometry?.type === 'PlaneGeometry') mesh = c })
+    obj.traverse?.(c => { if (!mesh && c?.isMesh && c.geometry?.type === 'PlaneGeometry') mesh = c })
     if (mesh && !isHorizWorld(mesh)) mesh.rotation.x = -Math.PI / 2
   }
   obj.updateWorldMatrix(true, true)
@@ -1370,11 +1506,16 @@ function searchComponents(query, limit = 10) {
     }
     return { ...meta, score }
   }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit)
+  const modelHit = searchModels(query, Math.max(limit, 12))
   return {
     query,
     count: scored.length,
     matches: scored.map(({ score, ...rest }) => rest),
-    hint: scored.length ? '从 matches 选 label → listResources({ label }) 了解详情 → addComponent' : '无匹配，换关键词或 listResources 浏览分类',
+    modelCount: modelHit.count,
+    modelMatches: modelHit.matches,
+    hint: scored.length || modelHit.count
+      ? '组件：从 matches 选 label → listResources({ label }) → addComponent；模型：从 modelMatches 选名称后 addModel({ urlOrName })'
+      : '无匹配，换关键词或 listResources 浏览分类与模型库',
   }
 }
 
@@ -1422,7 +1563,7 @@ function collectUniformsFromObject(obj) {
   add(obj.uniforms, '')
   if (obj.material?.uniforms) add(obj.material.uniforms, '')
   obj.traverse?.(c => {
-    if (c === obj || !c.isMesh?.material) return
+    if (c === obj || !c?.isMesh || !c.material) return
     add(c.material.uniforms, c.name || `mesh_${c.id}`)
   })
   return out
@@ -1443,7 +1584,7 @@ function readStandardMaterials(obj) {
   }
   if (obj.isMesh && obj.material) add([].concat(obj.material)[0], 'self')
   obj.traverse?.(c => {
-    if (c === obj || !c.isMesh?.material) return
+    if (c === obj || !c?.isMesh || !c.material) return
     add([].concat(c.material)[0], c.name || c.type)
   })
   return Object.keys(mats).length ? mats : null
@@ -1548,7 +1689,7 @@ function applyStandardMaterials(obj, materials) {
   }
   if (materials.self && obj.material) apply([].concat(obj.material)[0], materials.self)
   obj.traverse?.(c => {
-    if (!c.isMesh?.material) return
+    if (!c?.isMesh || !c.material) return
     const patch = materials[c.name] || materials[c.type]
     if (patch) apply([].concat(c.material)[0], patch)
   })
@@ -1609,8 +1750,99 @@ function setObjectParams(editor, { id, params, uniforms, extras, materials }) {
 }
 
 
+const MODEL_NAME_ALIASES = {
+  狐狸: 'fox',
+  狐狸模型: 'fox',
+  fox模型: 'fox',
+}
+
+function cleanModelText(value = '') {
+  return String(value || '')
+    .trim()
+    .replace(/^['"`“”‘’]+|['"`“”‘’]+$/g, '')
+}
+
+function modelStem(name = '') {
+  return String(name || '').replace(/\.[^.]+$/, '')
+}
+
+function normModelToken(value = '') {
+  return cleanModelText(value).toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function modelMatchTokens(value = '') {
+  const raw = cleanModelText(value)
+  const stripped = raw.replace(/(模型|model|加载|导入|添加|加个|来个|请|帮我|一下|一个|这只|这个)/gi, '')
+  const tokens = new Set([
+    normModelToken(raw),
+    normModelToken(modelStem(raw)),
+    normModelToken(stripped),
+    normModelToken(modelStem(stripped)),
+  ].filter(Boolean))
+
+  for (const token of [...tokens]) {
+    const alias = MODEL_NAME_ALIASES[token]
+    if (!alias) continue
+    tokens.add(normModelToken(alias))
+    tokens.add(normModelToken(modelStem(alias)))
+  }
+
+  return [...tokens]
+}
+
+function modelEntries() {
+  return (window.models || []).map((url) => {
+    const name = String(url || '').split('/').pop()
+    const stem = modelStem(name)
+    return {
+      name,
+      stem,
+      url,
+      nameNorm: normModelToken(name),
+      stemNorm: normModelToken(stem),
+      urlNorm: normModelToken(url),
+    }
+  })
+}
+
+function scoreModelEntry(entry, tokens) {
+  let score = 0
+  for (const token of tokens) {
+    if (!token) continue
+    if (entry.nameNorm === token) score = Math.max(score, 130)
+    else if (entry.stemNorm === token) score = Math.max(score, 120)
+    else if (entry.urlNorm.endsWith(token)) score = Math.max(score, 100)
+    else if (entry.nameNorm.includes(token)) score = Math.max(score, 80)
+    else if (entry.stemNorm.includes(token)) score = Math.max(score, 70)
+    else if (entry.urlNorm.includes(token)) score = Math.max(score, 60)
+  }
+  return score
+}
+
+function findModelMatches(urlOrName, limit = 8) {
+  const tokens = modelMatchTokens(urlOrName)
+  if (!tokens.length) return []
+  return modelEntries()
+    .map((entry) => ({ entry, score: scoreModelEntry(entry, tokens) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
+    .slice(0, limit)
+    .map(item => item.entry)
+}
+
 function listModels() {
-  return (window.models || []).map(url => ({ name: url.split('/').pop(), url }))
+  return modelEntries().map(({ name, stem, url }) => ({ name, stem, url }))
+}
+
+function searchModels(query, limit = 12) {
+  const q = cleanModelText(query)
+  if (!q) return { query, count: 0, matches: [] }
+  const matches = findModelMatches(q, limit)
+  return {
+    query,
+    count: matches.length,
+    matches: matches.map(m => m.name),
+  }
 }
 
 function listScenes() {
@@ -1618,9 +1850,12 @@ function listScenes() {
 }
 
 function resolveModelUrl(urlOrName) {
-  if (urlOrName.startsWith('http')) return urlOrName
-  const m = (window.models || []).find(u => u.includes(urlOrName) || u.split('/').pop() === urlOrName)
-  return m || null
+  const raw = cleanModelText(urlOrName)
+  if (!raw || /^https?:\/\//i.test(raw)) return null
+  const exact = modelEntries().find(m => m.url === raw || m.name === raw)
+  if (exact) return exact.url
+  const [best] = findModelMatches(raw, 1)
+  return best?.url || null
 }
 
 // L2c · 物体增删改（setProps / addMesh / addComponent / addModel / addLight）
@@ -1656,10 +1891,10 @@ function setProps(editor, { id, name, visible, position, rotation, scale, color,
   }
   const hex = color ? safeColor(color.startsWith('#') ? color : `#${color}`) : null
   if (color && !hex) return { error: 'color 无效，需 #rrggbb 格式' }
-  if (hex && obj.isLight?.color) obj.color.set(hex)
+  if (hex && obj.isLight && obj.color) obj.color.set(hex)
   if (hex || opacity != null) {
     obj.traverse?.(c => {
-      if (!c.isMesh?.material) return
+      if (!c?.isMesh || !c.material) return
       ;[].concat(c.material).forEach(m => {
         try {
           if (hex && m.color) m.color.set(hex)
@@ -1834,8 +2069,22 @@ async function addComponent(editor, label, position, flyTo = false, onGround) {
 }
 
 function addModel(editor, urlOrName, position = [0, 0, 0], flyTo = false, anim = {}, onGround = true) {
-  const url = resolveModelUrl(urlOrName)
-  if (!url) return { error: `未找到模型「${urlOrName}」`, hint: '用 listResources 查可用模型' }
+  const raw = cleanModelText(urlOrName)
+  if (/^https?:\/\//i.test(raw)) {
+    return {
+      error: 'addModel 仅支持编辑器本地模型库名称，不接受外部 URL',
+      hint: '先用 listResources({ query }) 找到本地模型名（如 Fox.glb）再 addModel；在线 URL 请明确要求后走 runEditorAction(loadOnlineModel)',
+    }
+  }
+  const url = resolveModelUrl(raw)
+  if (!url) {
+    const suggestions = findModelMatches(raw, 8).map(m => m.name)
+    return {
+      error: `未找到模型「${urlOrName}」`,
+      hint: '先用 listResources({ query: "fox" }) 或 listResources() 查看 models，再把名称传给 addModel',
+      candidates: suggestions,
+    }
+  }
   const pos = safeVec3(position) || [0, 0, 0]
   return new Promise(resolve => {
     try {
@@ -2026,7 +2275,7 @@ export function enableSceneShadows(editor, { castIds = [], receiveIds = [] } = {
   apply(receiveIds, 'receiveShadow')
   apply(castIds, 'castShadow')
   if (!castIds.length && !receiveIds.length) {
-    for (const o of collectObjects(editor, {})) {
+    for (const o of collectObjects(editor, { deep: true })) {
       if (o.isLight || isProtected(o)) continue
       if (isFloorLike(o)) setProps(editor, { id: o.id, receiveShadow: true })
       else if (o.isMesh) setProps(editor, { id: o.id, castShadow: true })
@@ -3131,6 +3380,8 @@ function setEditorSettings(editor, input) {
 export function getEditorApi(editor) {
   const hh = editor.handler?.handlerHistory
   const r = editor.renderer
+  const actionInfo = listEditorActions(editor)
+  const blendShader = getBlendShaderCapability(editor)
   return {
     threeEditor: {
       core: ['scene', 'camera', 'renderer', 'controls', 'transformControls', 'effectComposer', 'css3DRender', 'css2DRender', 'stats', 'DOM'],
@@ -3171,7 +3422,14 @@ export function getEditorApi(editor) {
       save: 'saveEditorScene()',
       screenshot: 'captureScreenshot({ download: true })',
     },
-    actionCatalog: `listEditorActions 共 ${Object.keys(EDITOR_ACTIONS).length} 个 runEditorAction`,
+    actionCatalog: `listEditorActions 共 ${actionInfo.total} 个 runEditorAction，可用 ${actionInfo.available} 个`,
+    actionSupport: {
+      total: actionInfo.total,
+      available: actionInfo.available,
+      requirementCoverage: actionInfo.requirementCoverage,
+      unsupported: actionInfo.actions.filter(a => !a.supported).map(a => ({ name: a.name, missing: a.missing || [] })),
+    },
+    blendShader,
     runtime: {
       selectedId: editor.transformControls?.object?.id ?? null,
       handlerMode: editor.handler?.mode ?? null,
@@ -3448,22 +3706,32 @@ export function listResources(editor, { label, query } = {}) {
   if (label) return buildComponentDetail(editor, label)
   if (query) return searchComponents(query)
   const cat = buildElementCatalog(false)
+  const allModels = listModels()
+  const shaderBlend = getBlendShaderCapability(editor)
   return {
     meshes: Object.keys(MESH_USAGE),
     lights: LIGHT_TYPES,
     components: cat.categories,
-    models: listModels().slice(0, 12).map(m => m.name),
+    modelCount: allModels.length,
+    models: allModels.map(m => m.name),
     skies: SKIES.map(s => s.name),
     palettes: COLOR_PALETTES.map(p => p.name),
-    advancedTools: NATIVE_TOOL_NAMES.slice(0, 14),
+    advancedTools: [...NATIVE_TOOL_NAMES.slice(0, 14), 'runEditorAction', 'listEditorActions'],
+    shaderBlend: {
+      supported: shaderBlend.supported,
+      shaders: shaderBlend.shaders.slice(0, 20),
+      ...(shaderBlend.supported ? {} : { missing: shaderBlend.missing }),
+      actions: ['listBlendShaders', 'applyBlendShader'],
+    },
     tips: {
       component: '流程：listResources({ label }) → addComponent → editObject；简单几何用 addMesh',
+      model: '优先使用编辑器本地模型：listResources 或 listResources({ query }) 找名称，然后 addModel({ urlOrName })',
       mesh: 'addMesh + editObject；立方体/球/柱/平面见 meshUsage',
       scene: 'buildScene 一键搭建（含阴影+运镜）',
       shadows: SHADOW_GUIDE,
-      search: 'listResources({ query }) 搜组件，再 listResources({ label }) 查详情后才可 addComponent',
+      search: 'listResources({ query }) 同时搜索组件与模型；组件需先 listResources({ label }) 再 addComponent',
       edit: EDIT_WORKFLOW,
-      advanced: 'runAdvanced({ tool, input })',
+      advanced: 'runAdvanced({ tool, input })；混合着色器用 runEditorAction(listBlendShaders/applyBlendShader)',
     },
   }
 }
@@ -3770,8 +4038,8 @@ function createAllSceneTools(editor) {
       }), (input) => setProps(editor, input)),
     selectObject: mk('选中对象，不移动相机', z.object({ id: z.number() }), ({ id }) => selectObject(editor, id)),
     deleteObject: mk('从场景删除对象并 dispose 几何/材质/纹理', z.object({ id: z.number() }), ({ id }) => deleteObject(editor, id)),
-    addModel: mk('加载 GLB/FBX 模型。默认贴地且 flyTo 飞到模型', z.object({
-        urlOrName: z.string().describe('模型 URL 或文件名，来自 listResources'),
+    addModel: mk('加载编辑器本地 GLB/FBX 模型。默认贴地且 flyTo 飞到模型', z.object({
+      urlOrName: z.string().describe('本地模型文件名，来自 listResources.models，如 Fox.glb'),
         position: vec3.describe('位置，默认 [0,0,0]'),
         flyTo: z.boolean().optional().describe('加载后飞过去，默认 true'),
         onGround: z.boolean().optional().describe('加载后自动贴地，默认 true'),
