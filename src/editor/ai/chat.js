@@ -157,12 +157,8 @@ export function getAiConfig() {
 
 export function formatAiError(err) {
   const msg = (err?.message || String(err)).trim()
-  if (/insufficient balance/i.test(msg)) {
-    return 'DeepSeek 账户余额不足，请到 platform.deepseek.com 充值后再试。'
-  }
-  if (/invalid api key|authentication/i.test(msg)) {
-    return 'API Key 无效，请到 DeepSeek 控制台重新复制。'
-  }
+  if (/insufficient balance/i.test(msg)) return '账户余额不足，请充值后再试。'
+  if (/invalid api key|authentication/i.test(msg)) return 'API Key 无效，请重新检查配置。'
   return msg || '请求失败'
 }
 

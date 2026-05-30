@@ -1133,23 +1133,57 @@ function buildEditHints(o) {
 function getSceneColorContext(editor) {
   const s = editor?.scene
   if (!s) return {}
-  const out = { palettes: COLOR_PALETTES.map(p => p.name) }
+  const out = {}
   if (s.background?.isColor) out.background = `#${s.background.getHexString()}`
-  if (s.fog?.color) out.fog = `#${s.fog.color.getHexString()}`
+  if (s.fog?.color) {
+    out.fog = `#${s.fog.color.getHexString()}`
+    if (s.fog.near != null) out.fogRange = `near:${r(s.fog.near)} far:${r(s.fog.far ?? 1000)}`
+  }
+  // 灯光摘要
+  const lights = []
+  s.traverse(o => {
+    if (!o.isLight) return
+    const info = { type: o.type, intensity: r(o.intensity ?? 1) }
+    if (o.color) info.color = `#${o.color.getHexString()}`
+    if (o.castShadow) info.shadow = true
+    lights.push(info)
+  })
+  if (lights.length) out.lights = lights
+  // 场景主色调提取（取前5个mesh的颜色）
+  const meshColors = []
+  s.traverse(o => {
+    if (meshColors.length >= 5 || !o.isMesh || !o.material) return
+    const m = Array.isArray(o.material) ? o.material[0] : o.material
+    if (m?.color) meshColors.push(`#${m.color.getHexString()}`)
+  })
+  if (meshColors.length) out.meshColors = meshColors
   return out
 }
 
 function snapshotLine(o) {
   const cls = classifySceneObject(o)
   const b = getBounds(o)
-  let col = ''
+  const matInfo = []
   o.traverse?.(c => {
-    if (!col && c?.isMesh && c.material?.color) col = `#${c.material.color.getHexString()}`
+    if (!c?.isMesh || !c.material) return
+    const m = Array.isArray(c.material) ? c.material[0] : c.material
+    if (!m) return
+    if (m.color && matInfo.length === 0) matInfo.push(`color:${m.color.getHexString()}`)
+    if (m.metalness != null && m.metalness > 0) matInfo.push(`metal:${r(m.metalness)}`)
+    if (m.roughness != null) matInfo.push(`rough:${r(m.roughness)}`)
+    if (m.emissive && m.emissiveIntensity > 0) matInfo.push(`emit:${m.emissive.getHexString()}`)
+    if (m.opacity != null && m.opacity < 1) matInfo.push(`opacity:${r(m.opacity)}`)
+    if (m.wireframe) matInfo.push('wireframe')
   })
-  const parts = [`#${o.id} ${o.name || '?'}(${cls.role})`, `@${v3(o.position).join(',')}`]
-  if (b) parts.push(`sz${b.size.map(x => r(x)).join('×')}`)
-  if (col) parts.push(col)
-  return parts.join(' ')
+  if (o.isLight) {
+    matInfo.push(`intensity:${r(o.intensity ?? 1)}`)
+    if (o.color) matInfo.push(`color:${o.color.getHexString()}`)
+    if (o.castShadow) matInfo.push('shadow')
+  }
+  const parts = [`#${o.id} ${o.name || '?'}(${cls.role})`]
+  if (b) parts.push(`sz${b.size.map(x => r(x)).join('×')} y${r(b.min[1])}~${r(b.max[1])}`)
+  if (matInfo.length) parts.push(matInfo.slice(0, 4).join(' '))
+  return parts.join(' | ')
 }
 
 /** editObject 前校验，拦截常见盲改 */
