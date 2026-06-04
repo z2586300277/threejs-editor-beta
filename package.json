@@ -13,6 +13,7 @@
   "dependencies": {
     "3d-tiles-renderer": "^0.4.27",
     "@ai-sdk/anthropic": "^3.0.81",
+    "@antoninrousset/three-edge-projection": "^0.0.3",
     "@element-plus/icons-vue": "^2.3.2",
     "@sparkjsdev/spark": "^2.1.0",
     "ai": "^6.0.193",
