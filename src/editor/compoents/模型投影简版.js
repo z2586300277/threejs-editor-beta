@@ -2,12 +2,17 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ProjectionGenerator } from '@antoninrousset/three-edge-projection';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 export default {
     name: '模型投影',
     label: '模型投影',
     async create(storage, { scene }) {
-        const gltf = await new GLTFLoader().loadAsync('https://z2586300277.github.io/three-editor/dist/files/resource/datacenter.glb');
+        const loader = new GLTFLoader();
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath('https://z2586300277.github.io/three-editor/dist/draco/')
+        loader.setDRACOLoader(dracoLoader);
+        const gltf = await loader.loadAsync('https://z2586300277.github.io/three-editor/dist/files/resource/datacenter.glb');
         const model = gltf.scene;
         const group = new THREE.Group();
         const geometries = [];
