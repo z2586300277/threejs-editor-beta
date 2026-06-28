@@ -1,0 +1,18 @@
+{
+  "name": "threejs-editor-agent-server",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "@langchain/anthropic": "^1.5.1",
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.6",
+    "fastify": "^5.3.2",
+    "zod": "^4.4.3"
+  }
+}

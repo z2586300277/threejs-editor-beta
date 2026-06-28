@@ -11,6 +11,11 @@ dist
 node_modules
 dist-ssr
 *.local
+server/.env
+.env
+.env.*
+!.env.example
+!server/.env.example
 
 # Editor directories and files git checkout --orphan dev
 .vscode/*

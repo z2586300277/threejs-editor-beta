@@ -1,4 +1,3 @@
-import { tool } from 'ai'
 import { z } from 'zod/v4'
 import * as THREE from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
@@ -9,7 +8,6 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { ThreeEditor, CORES_LIST, getObjectViews, createGsapAnimation, restoreHistoryHandler, getObjectBox3, getMaterials, createSpriteText, setGsapMeshAction } from '../lib'
 import {
-  CFG_KEY, LAYOUT_KEY, CHATS_KEY, DEFAULT_AI_CONFIG, MAX_HISTORY, MAX_STEPS, TOOL_STATUS,
   CURATED, ADVANCED_HINT, animJsonPath, scenePath, PROTECTED, SKIP, MAX_POS, MIN_SCALE, MAX_SCALE,
   MAX_INTENSITY, MAX_COUNT, MAX_INSTANCES, MAX_CURVE_POINTS, MAX_DRAW_POINTS, LIST_CAP, EXTRA_KEYS,
   PARAM_LIMITS, OTHER_PANELS, LIGHT_ZH, HANDLER_MODES, TC_MODES, TRANSFORM_MODES, TC_SPACES,
@@ -951,8 +949,9 @@ function findEditable(scene, id) {
 function guardTool(def) {
   const tag = def.description?.slice(0, 24) || 'tool'
   const run = def.execute
-  return tool({
-    ...def,
+  return {
+    description: def.description,
+    inputSchema: def.inputSchema,
     execute: async (input) => {
       try {
         return await run(input)
@@ -961,7 +960,7 @@ function guardTool(def) {
         return { error: `操作失败（场景保持原状）: ${err?.message || String(err)}` }
       }
     },
-  })
+  }
 }
 const mk = (description, inputSchema, execute) => guardTool({ description, inputSchema, execute })
 

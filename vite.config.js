@@ -68,7 +68,16 @@ export default defineConfig({
 
     open: true,
 
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+
+    proxy: {
+      '/api/agent': {
+        target: 'http://127.0.0.1:6000',
+        changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
+    },
 
   }
 

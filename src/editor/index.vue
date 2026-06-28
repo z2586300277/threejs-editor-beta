@@ -194,7 +194,7 @@ import { Pointer, Position, RefreshRight, ZoomIn, Remove, Refresh } from '@eleme
 import LeftPanel from './left.vue'
 import RightPanel from './right.vue'
 import AiPanel from './ai/aiPanel.vue'
-import { mountSceneAI } from './ai/ai'
+import { mountSceneAI } from './ai/chat.js'
 import { useRoute, useRouter } from 'vue-router'
 import { setIndexDB } from './indexDb'
 import { getObjectViews, createGsapAnimation, restoreHistoryHandler } from './lib'

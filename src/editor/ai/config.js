@@ -1,34 +1,7 @@
 import * as THREE from 'three'
-
-
-// 聊天 AI
-export const CFG_KEY = 'AI_scene_config'
-export const LAYOUT_KEY = 'AI_panel_layout'
-export const CHATS_KEY = 'AI_chats'
-export const DEFAULT_AI_CONFIG = {
-  baseURL: 'https://api.deepseek.com/anthropic',
-  apiKey: '',
-  model: 'deepseek-v4-flash',
-}
-export const MAX_HISTORY = 12
-export const MAX_STEPS = 12
-export const TOOL_STATUS = {
-  inspectScene: '看场景', listResources: '查资源', openPanel: '开面板', getObject: '读对象', editObject: '改对象',
-  addMesh: '加几何', addComponent: '加组件', addModel: '加模型', addLight: '加灯光',
-  createMesh: '原生建模', setMaterial: '原生材质', setSceneProps: '原生场景',
-  addNativeLight: '原生灯光', setLightProps: '灯光调参', applyTexture: '贴图',
-  cloneObject: '克隆对象', lookAt: '朝向目标',
-  deleteObject: '删除', placeOnGround: '贴地', setEnvironment: '设氛围', enableShadows: '开阴影',
-  playAnimation: '播动画', history: '撤销/重做', buildScene: '搭建场景', runAdvanced: '高级操作',
-}
-export const CURATED = new Set([
-  'inspectScene', 'listResources', 'openPanel', 'getObject', 'editObject',
-  'addMesh', 'addComponent', 'addModel', 'addLight',
-  'createMesh', 'setMaterial', 'setSceneProps', 'addNativeLight', 'setLightProps', 'applyTexture', 'cloneObject', 'lookAt',
-  'deleteObject', 'placeOnGround', 'setEnvironment', 'enableShadows', 'focusCamera',
-  'playAnimation', 'history', 'buildScene', 'runAdvanced',
-])
-export const ADVANCED_HINT = 'runEditorAction,openEditorPanel,exportSceneGlb,createInstancedMesh,createLatheMesh,addTubeMesh,...'
+export {
+  CFG_KEY, LAYOUT_KEY, CHATS_KEY, MAX_STEPS, TOOL_STATUS, CURATED, ADVANCED_HINT, DEFAULT_MODEL,
+} from './shared.js'
 
 /** 阴影四要素（缺一无效） */
 export const SHADOW_GUIDE = '① renderer.shadowMap ② 平行光 castShadow ③ mesh castShadow ④ 地面 receiveShadow；只用 enableShadows，不要用 setEnvironment 开阴影'

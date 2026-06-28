@@ -6,16 +6,15 @@
   "scripts": {
     "start": "vite",
     "dev": "vite",
+    "dev:agent": "pnpm --filter threejs-editor-agent-server dev",
     "serve": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "3d-tiles-renderer": "^0.4.27",
-    "@ai-sdk/anthropic": "^3.0.81",
     "@element-plus/icons-vue": "^2.3.2",
     "@sparkjsdev/spark": "^2.1.0",
-    "ai": "^6.0.193",
     "cannon-es": "^0.20.0",
     "echarts": "^6.1.0",
     "element-plus": "^2.14.1",
@@ -26,7 +25,6 @@
     "three": "0.184.0",
     "three-edit-cores": "^0.0.20",
     "vue": "^3.5.35",
-    "vue-element-plus-x": "^2.0.3",
     "vue-router": "^5.1.0",
     "zod": "^4.4.3"
   },
